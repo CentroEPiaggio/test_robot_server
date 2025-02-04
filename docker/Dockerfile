@@ -4,8 +4,6 @@ ARG BASE_TAG=noetic-desktop
 
 FROM ${BASE_IMAGE}:${BASE_TAG}
 
-ARG ROS_NUMBER=1
-
 # ================================== Nvidia ================================== #
 
 # Use the NVIDIA graphics card.
@@ -48,27 +46,47 @@ ENV NVIDIA_DRIVER_CAPABILITIES=compute,graphics,utility
 # Prevent bash to ask for user input which may break the building process
 ENV DEBIAN_FRONTEND=noninteractive
 
-# Install sudo, and some essential packages.
+# Install sudo, and some essential packages
 RUN --mount=type=cache,sharing=locked,target=/var/cache/apt --mount=type=cache,sharing=locked,target=/var/lib/apt \
     apt-get update && apt-get install --no-install-recommends -qqy \
     bash-completion \
     build-essential \
     git \
     sudo \
-    wget
+    wget \
+    gdb
 
-# Install packages specific for ROS 1.
-RUN --mount=type=cache,sharing=locked,target=/var/cache/apt --mount=type=cache,sharing=locked,target=/var/lib/apt \
-    if [ "${ROS_NUMBER}" = "1" ] ; then \
-        apt-get update && apt-get install --no-install-recommends -qqy \
-        ros-${ROS_DISTRO}-catkin \
-        python3-catkin-tools \
-        python3-osrf-pycommon ; \
-    fi
+# Install packages specific for ROS 1
+# RUN --mount=type=cache,sharing=locked,target=/var/cache/apt --mount=type=cache,sharing=locked,target=/var/lib/apt \
+RUN apt-get update && apt-get install --no-install-recommends -qqy \
+    ros-${ROS_DISTRO}-catkin \
+    python3-catkin-tools \
+    python3-osrf-pycommon \
+    ros-${ROS_DISTRO}-gazebo-ros \
+	ros-${ROS_DISTRO}-rqt \
+	ros-${ROS_DISTRO}-rqt-common-plugins \
+	ros-${ROS_DISTRO}-controller-interface \
+	ros-${ROS_DISTRO}-controller-manager \
+	ros-${ROS_DISTRO}-ros-control \
+	ros-${ROS_DISTRO}-ros-controllers \
+    ros-${ROS_DISTRO}-tf2-geometry-msgs \
+    ros-${ROS_DISTRO}-rviz-visual-tools \
+	ros-${ROS_DISTRO}-plotjuggler-ros
+
+# Install packages specific for Franka and qb devices
+RUN apt-get update && apt-get install --no-install-recommends -qqy \
+    ros-${ROS_DISTRO}-libfranka \
+	ros-${ROS_DISTRO}-franka-ros \
+    ros-${ROS_DISTRO}-qb-move
+
+# Install movit
+RUN apt-get update && apt-get install --no-install-recommends -qqy \
+	ros-${ROS_DISTRO}-moveit \
+	ros-${ROS_DISTRO}-moveit-visual-tools
 
 ARG MYUID=1000
 ARG MYGID=1000
-ARG USER=ros
+ARG USER=docker
 ARG PWDR=/
 
 RUN OLD_USER=$(awk -v uid="$MYUID" -F ':' '$3==uid {print $1}' /etc/passwd) \
@@ -94,36 +112,23 @@ USER ${USER}
 # Change HOME environment variable
 ENV HOME=/home/${USER}
 
-# Install the required dependencies with rosdep.
-RUN --mount=type=cache,sharing=locked,target=/var/cache/apt --mount=type=cache,sharing=locked,target=/var/lib/apt \
-    --mount=type=bind,source=./src,target=/home/${USER}/catkin_ws/src,rw \
-    cd /home/${USER}/catkin_ws \
- && sudo apt-get update \
- && rosdep update \
- && rosdep install --from-paths src --ignore-src -r -y
-
 # Set up environment
-COPY ./docker/.config/update_bashrc_ros_1 /sbin/update_bashrc_ros_1
-COPY ./docker/.config/update_bashrc_ros_2 /sbin/update_bashrc_ros_2
+COPY ./docker/.config/update_bashrc /sbin/update_bashrc
 
-RUN if [ "${ROS_NUMBER}" = "1" ] ; then \
-        sudo chmod +x /sbin/update_bashrc_ros_1 ; sudo chown ${USER} /sbin/update_bashrc_ros_1 \
-        && echo 'echo "source '${PWDR}'/devel/setup.bash" >> ~/.bashrc' >> /sbin/update_bashrc_ros_1 \
-        && cat /sbin/update_bashrc_ros_1 \
-        && sync ; /bin/bash -c /sbin/update_bashrc_ros_1 ; sudo rm /sbin/update_bashrc_ros_1 ; \
-    elif [ "${ROS_NUMBER}" = "2" ] ; then \
-        sudo chmod +x /sbin/update_bashrc_ros_2 ; sudo chown ${USER} /sbin/update_bashrc_ros_2 \
-        && echo 'echo "source '${PWDR}'/install/setup.bash" >> ~/.bashrc' >> /sbin/update_bashrc_ros_2 \
-        && cat /sbin/update_bashrc_ros_2 \
-        && sync ; /bin/bash -c /sbin/update_bashrc_ros_2 ; sudo rm /sbin/update_bashrc_ros_2 ; \
-    fi
+RUN sudo chmod +x /sbin/update_bashrc ; sudo chown ${USER} /sbin/update_bashrc \
+    && echo 'echo "source '${PWDR}'/devel/setup.bash" >> ~/.bashrc' >> /sbin/update_bashrc \
+    && cat /sbin/update_bashrc \
+    && sync ; /bin/bash -c /sbin/update_bashrc ; sudo rm /sbin/update_bashrc
 
 # Change entrypoint to source ~/.bashrc and start in ~
 COPY ./docker/.config/entrypoint.sh /ros_entrypoint.sh
 RUN sudo chmod +x /ros_entrypoint.sh ; sudo chown ${USER} /ros_entrypoint.sh \
- && echo "cd "${PWDR} >> /ros_entrypoint.sh \
- && echo 'exec bash -i -c $@' >> /ros_entrypoint.sh \
- && cat /ros_entrypoint.sh
+    && echo "cd "${PWDR} >> /ros_entrypoint.sh \
+    && echo 'exec bash -i -c $@' >> /ros_entrypoint.sh \
+    && cat /ros_entrypoint.sh
+
+# Clean image
+RUN sudo apt-get clean && sudo rm -rf /var/lib/apt/lists/*
 
 ENTRYPOINT ["/ros_entrypoint.sh"]
 CMD ["bash"]

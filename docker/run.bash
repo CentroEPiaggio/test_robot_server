@@ -9,7 +9,7 @@ then
 fi
 
 # TODO: Change image name if you wish (here and in build.sh).
-IMAGE_NAME=ros_image_name
+IMAGE_NAME=ros1_panda_qb
 
 xhost +
 docker run \

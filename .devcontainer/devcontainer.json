@@ -1,0 +1,42 @@
+// For format details, see https://aka.ms/devcontainer.json. For config options, see the
+// README at: https://github.com/devcontainers/templates/tree/main/src/docker-existing-dockerfile
+{
+	"name": "ros1_panda_qb_dev",
+	"image": "ros1_panda_qb",
+
+	// // local mount point
+	// "workspaceMount": "source=${localWorkspaceFolder}/sub-folder,target=/workspace,type=bind,consistency=cached",
+	// // default path used
+	// "workspaceFolder": "/workspace",
+
+	// Features to add to the dev container. More info: https://containers.dev/features.
+	// "features": {},
+
+	// Use 'forwardPorts' to make a list of ports inside the container available locally.
+	// "forwardPorts": [3000],
+
+	// Uncomment the next line to run commands after the container is created.
+	// "postCreateCommand": "cat /etc/os-release",
+
+	// Configure tool-specific properties.
+	"customizations": {
+		// Configure properties specific to VS Code.
+		"vscode": {
+		  	// Add the IDs of extensions you want installed when the container is created.
+		  	"extensions": [
+				"ms-vscode.cpptools",
+				"ms-vscode.cpptools-extension-pack",
+				"vscode-icons-team.vscode-icons",
+				"eamodio.gitlens",
+				"ms-iot.vscode-ros",
+				"sandy081.todotasks"
+			]
+		}
+	},
+
+	// Uncomment to connect as an existing user other than the container default. More info: https://aka.ms/dev-containers-non-root.
+	// "containerUser": "docker"
+
+	// Execute after start container
+	"postStartCommand": "bash ./.devcontainer/init.bash"
+}

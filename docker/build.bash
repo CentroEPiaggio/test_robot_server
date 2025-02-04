@@ -5,22 +5,11 @@ cd "$(dirname "$(dirname "$(realpath "${BASH_SOURCE[0]}")")")"
 
 # ================================= Edit Here ================================ #
 
-# TODO: Change these values to use different versions of ROS or different base images. The rest of the script should be left unchanged.
-#       Remember to change the ROS_NUMBER in accordance to the ROS version, otherwise you're stupid and deserve a painful death.
-BASE_IMAGE=osrf/ros
-BASE_TAG=foxy-desktop
-ROS_NUMBER=2
-IMAGE_NAME=ros_image_name
+IMAGE_NAME=ros1_franka_qb
 
 # =============================== Preliminaries ============================== #
 
-mkdir -p build log src
-if [[ $ROS_NUMBER == 1 ]]; then
-    mkdir -p devel
-elif [[ $ROS_NUMBER == 2 ]]; then
-    mkdir -p install
-fi
-
+mkdir -p build log src devel
 mkdir -p ~/.vscode ~/.vscode-server ~/.config/Code
 
 # =============================== Help Function ============================== #
@@ -61,9 +50,7 @@ while getopts hr-: OPT; do
 done
 shift $((OPTIND-1)) # remove parsed options and args from $@ list
 
-# ========================= Pull And Build The Image ========================= #
-
-docker pull $BASE_IMAGE:$BASE_TAG
+# ========================= Build The Image ========================= #
 
 GID="$(id -g $USER)"
 
@@ -75,9 +62,6 @@ fi
 
 docker build \
     ${cache} \
-    --build-arg BASE_IMAGE=$BASE_IMAGE \
-    --build-arg BASE_TAG=$BASE_TAG \
-    --build-arg ROS_NUMBER=$ROS_NUMBER \
     --build-arg MYUID=${UID} \
     --build-arg MYGID=${GID} \
     --build-arg USER=${USER} \

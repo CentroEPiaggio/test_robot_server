@@ -1,0 +1,25 @@
+{
+    // Use IntelliSense to learn about possible attributes.
+    // Hover to view descriptions of existing attributes.
+    // For more information, visit: https://go.microsoft.com/fwlink/?linkid=830387
+    "version": "0.2.0",
+    "configurations": [
+		{
+			"name": "ROS: Launch",
+			"type": "ros",
+			"request": "launch",
+			// "sourceFileMap": {
+            //     "/home/user/project/file.hpp" : "/home/YourNameBeyondDocker/project/file.hpp"
+			// },
+			// "sourceFileMap": {"workspaces/.../ros1_panda_qb/src":"${workspaceFolder}"}, 
+			// "sourceFileMap": "workspaces/.../ros1_panda_qb/src",
+			"target": "${workspaceFolder}/src/.../.launch",
+			"preLaunchTask": "build_debug"
+		},
+		{
+			"name": "ROS: Attach",
+			"type": "ros",
+			"request": "attach"
+		}
+    ]
+}
