@@ -11,8 +11,8 @@
 			// "sourceFileMap": {
             //     "/home/user/project/file.hpp" : "/home/YourNameBeyondDocker/project/file.hpp"
 			// },
-			// "sourceFileMap": {"workspaces/.../ros1_panda_qb/src":"${workspaceFolder}"}, 
-			// "sourceFileMap": "workspaces/.../ros1_panda_qb/src",
+			// "sourceFileMap": {"workspaces/.../ros1_franka_qb/src":"${workspaceFolder}"}, 
+			// "sourceFileMap": "workspaces/.../ros1_franka_qb/src",
 			"target": "${workspaceFolder}/src/.../.launch",
 			"preLaunchTask": "build_debug"
 		},

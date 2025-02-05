@@ -113,12 +113,12 @@ USER ${USER}
 ENV HOME=/home/${USER}
 
 # Set up environment
-COPY ./docker/.config/update_bashrc /sbin/update_bashrc
+COPY ./docker/.config/update_bashrc.sh /sbin/update_bashrc.sh
 
-RUN sudo chmod +x /sbin/update_bashrc ; sudo chown ${USER} /sbin/update_bashrc \
-    && echo 'echo "source '${PWDR}'/devel/setup.bash" >> ~/.bashrc' >> /sbin/update_bashrc \
-    && cat /sbin/update_bashrc \
-    && sync ; /bin/bash -c /sbin/update_bashrc ; sudo rm /sbin/update_bashrc
+RUN sudo chmod +x /sbin/update_bashrc.sh ; sudo chown ${USER} /sbin/update_bashrc.sh \
+    && echo 'echo "source '${PWDR}'/devel/setup.bash" >> ~/.bashrc' >> /sbin/update_bashrc.sh \
+    && cat /sbin/update_bashrc.sh \
+    && sync ; /bin/bash -c /sbin/update_bashrc.sh ; sudo rm /sbin/update_bashrc.sh
 
 # Change entrypoint to source ~/.bashrc and start in ~
 COPY ./docker/.config/entrypoint.sh /ros_entrypoint.sh

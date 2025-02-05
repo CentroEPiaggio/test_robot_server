@@ -9,7 +9,7 @@ then
 fi
 
 # TODO: Change image name if you wish (here and in build.sh).
-IMAGE_NAME=ros1_panda_qb
+IMAGE_NAME=ros1_franka_qb
 
 xhost +
 docker run \
@@ -26,7 +26,7 @@ docker run \
     --env="XAUTHORITY=$XAUTH" \
     --volume="$XAUTH:$XAUTH" \
     --volume="/dev/dri:/dev/dri" \
-    --gpus all \
+    `# --gpus all # error here`\
     `# Mount the folders in this directory.` \
     -v ${PWD}:${PWD} \
     `# Preserve bash history for autocomplete).` \

@@ -1,4 +1,5 @@
 ☐ CONTAINER_NAME as default argument in run.bash (e.g. './run.bash [name]'). Useful for attach.sh (to do!)
+☐ the vscode image building is not working properly, have to recompile catkin if terminal is used.
 
 old:
 ☐ fai funzionare catkin build sia dal container vscode sia da terminale, il problema è che vscode monta i volumi in modo diverso? guara impostazioni .devcontainer
