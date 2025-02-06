@@ -19,14 +19,13 @@ docker run \
     -it \
     `# Clean up the container after exit.` \
     --rm \
-    `# Use GUI and NVIDIA.` \
+    `# Unable GUI.` \
     --env="DISPLAY=$DISPLAY" \
     --env="QT_X11_NO_MITSHM=1" \
     --volume="/tmp/.X11-unix:/tmp/.X11-unix:rw" \
     --env="XAUTHORITY=$XAUTH" \
     --volume="$XAUTH:$XAUTH" \
     --volume="/dev/dri:/dev/dri" \
-    `# --gpus all # error here`\
     `# Mount the folders in this directory.` \
     -v ${PWD}:${PWD} \
     `# Preserve bash history for autocomplete).` \
