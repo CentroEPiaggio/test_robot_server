@@ -1,15 +1,15 @@
 # Docker_ws - !EXPERIMENTAL!
 
 General purpose docker workspaces to use different systems and developing inside a container. This is an extension of [docker_ros_nvidia](https://github.com/ddebenedittis/docker_ros_nvidia) from [Davide De Benedittis](https://github.com/ddebenedittis) meant to the ones that wants to use vscode for developing inside a container.
-The ROS part is very similar to the forked repository, so refer to it. Differently, here each different system has a branch that you can directly clone it and use it.
+The ROS part is very similar to the forked repository, so refer to it. Differently, here each different system has a branch that you can directly clone and use.
 
 ## Overview
-Workspaces to build images with different systems with NVIDIA and GUI support (e.g. Gazebo and RViz).
+Workspaces to build images with different systems with GUI support (e.g. Gazebo and RViz).
 
 The `build.bash` and the `run.bash` files are used to automatically build and run the image.
 `attach.bash` will be added to connect to the same container created with run.
 
-This repository is intended to be used as a base for other projects that require ROS, NVIDIA, and GUI support in Docker. Providing also the infrastructure for developing inside the container (devcontainer extension).
+This repository is intended to be used as a base for other projects that require ROS, and GUI support in Docker. Providing also the infrastructure for developing inside the container (devcontainer extension).
 
 The overall idea is to clone the repository and add to .gitignore what you will insert. In this way you can keep track of the modification of the docker structure, while maintaining separate repositories for your works.
 
@@ -24,9 +24,6 @@ It is better to avoid running this command with `sudo` and instead follow the po
 
 Follow with the [post-installation steps](https://docs.docker.com/engine/install/linux-postinstall/) for Linux.
 This will allow you to run Docker without `sudo`.
-
-Install [NVIDIA Container Toolkit](https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/install-guide.html#setting-up-nvidia-container-toolkit) (nvidia-docker2).
-
 
 ## Usage
 The docker base image and the ROS version can be changed by modifying the `BASE_IMAGE` and the `BASE_TAG` in the `dockerfile`.
@@ -53,12 +50,6 @@ To use VS Code with Docker, you have two method:
 
 ## Troubleshooting
 
-- **No GPU available in Docker**: running `nvidia-smi` in the Docker container returns `Failed to initialize NVML: Unknown Error`.\
-  Solution:
-  - Run `sudo nano /etc/nvidia-container-runtime/config.toml`, set `no-cgroups = false`, and save (Ctrl + X and then Y).
-  - Restart Docker with `sudo systemctl restart docker`.
-
-
 ## Authors
 
 [Davide De Benedittis](https://github.com/ddebenedittis)
@@ -68,4 +59,4 @@ To use VS Code with Docker, you have two method:
 ## Acknowledgments
 
 - [Baptiste Busch](https://medium.com/@baptiste.busch/creating-a-ros-or-ros2-workspace-in-docker-part-1-912529c87708): creation of a ROS workspace in Docker
-- [Official NVIDIA CUDA Docker Images](https://hub.docker.com/r/nvidia/cuda): NVIDIA Drivers in Docker. Uses the `12.x.x-base-ubuntuxx.xx` version. Change it to your liking.
+
