@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # Navigate to the root directory of the project.
-cd "$(dirname "$(dirname "$(realpath "${BASH_SOURCE[0]}")")")"
+# cd "$(dirname "$(dirname "$(realpath "${BASH_SOURCE[0]}")")")"
 
 # ================================= Edit Here ================================ #
 
@@ -9,7 +9,7 @@ IMAGE_NAME=ros1_franka_qb
 
 # =============================== Preliminaries ============================== #
 
-mkdir -p build log src devel
+mkdir -p build logs src devel
 mkdir -p ~/.vscode ~/.vscode-server ~/.config/Code
 
 # =============================== Help Function ============================== #
@@ -67,4 +67,4 @@ docker build \
     --build-arg USER=${USER} \
     --build-arg "PWDR=$PWD" \
     -t $IMAGE_NAME \
-    -f docker/Dockerfile .
+    -f ./.devcontainer/Dockerfile .

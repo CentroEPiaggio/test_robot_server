@@ -68,7 +68,7 @@ USER ${USER}
 ENV HOME=/home/${USER}
 
 # Set up environment
-COPY ./docker/.config/update_bashrc.sh /sbin/update_bashrc.sh
+COPY ./.devcontainer/update_bashrc.sh /sbin/update_bashrc.sh
 
 RUN sudo chmod +x /sbin/update_bashrc.sh ; sudo chown ${USER} /sbin/update_bashrc.sh \
     && echo 'echo "source '${PWDR}'/devel/setup.bash" >> ~/.bashrc' >> /sbin/update_bashrc.sh \
@@ -76,14 +76,14 @@ RUN sudo chmod +x /sbin/update_bashrc.sh ; sudo chown ${USER} /sbin/update_bashr
     && sync ; /bin/bash -c /sbin/update_bashrc.sh ; sudo rm /sbin/update_bashrc.sh
 
 # Change entrypoint to source ~/.bashrc and start in ~
-COPY ./docker/.config/entrypoint.sh /ros_entrypoint.sh
-RUN sudo chmod +x /ros_entrypoint.sh ; sudo chown ${USER} /ros_entrypoint.sh \
-    && echo "cd "${PWDR} >> /ros_entrypoint.sh \
-    && echo 'exec bash -i -c $@' >> /ros_entrypoint.sh \
-    && cat /ros_entrypoint.sh
+COPY ./.devcontainer/entrypoint.sh /entrypoint.sh
+RUN sudo chmod +x /entrypoint.sh ; sudo chown ${USER} /entrypoint.sh \
+    && echo "cd "${PWDR} >> /entrypoint.sh \
+    && echo 'exec bash -i -c $@' >> /entrypoint.sh \
+    && cat /entrypoint.sh
 
 # Clean image
 RUN sudo apt-get clean && sudo rm -rf /var/lib/apt/lists/*
 
-ENTRYPOINT ["/ros_entrypoint.sh"]
+ENTRYPOINT ["/entrypoint.sh"]
 CMD ["bash"]

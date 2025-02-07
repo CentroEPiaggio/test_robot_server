@@ -28,6 +28,7 @@
 				"ms-vscode.cpptools-extension-pack",
 				"vscode-icons-team.vscode-icons",
 				"eamodio.gitlens",
+				"github.copilot",
 				"ms-iot.vscode-ros",
 				"sandy081.todotasks"
 			]
