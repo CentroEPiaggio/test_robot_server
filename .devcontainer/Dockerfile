@@ -1,6 +1,7 @@
 # Change ROS version in build.sh, not here!
 ARG BASE_IMAGE=osrf/ros
 ARG BASE_TAG=noetic-desktop
+ARG LIBFRANKA_VERSION=0.13.0
 
 FROM ${BASE_IMAGE}:${BASE_TAG}
 
@@ -31,14 +32,40 @@ RUN apt-get update && apt-get install --no-install-recommends -qqy \
 	ros-${ROS_DISTRO}-ros-controllers \
     ros-${ROS_DISTRO}-tf2-geometry-msgs \
     ros-${ROS_DISTRO}-rviz-visual-tools \
-	ros-${ROS_DISTRO}-plotjuggler-ros
+	ros-${ROS_DISTRO}-plotjuggler-ros \
+    ros-${ROS_DISTRO}-gazebo-ros-pkgs
+
+# depends of libfranka
+RUN apt-get update && apt-get install --no-install-recommends -qqy \
+    libpoco-dev \
+    libeigen3-dev \
+    libfmt-dev \
+    lsb-release \
+    curl
+
+# install pinocchio
+RUN mkdir -p /etc/apt/keyrings \
+    && curl -fsSL http://robotpkg.openrobots.org/packages/debian/robotpkg.asc | sudo tee /etc/apt/keyrings/robotpkg.asc \
+    && echo "deb [arch=amd64 signed-by=/etc/apt/keyrings/robotpkg.asc] http://robotpkg.openrobots.org/packages/debian/pub $(lsb_release -cs) robotpkg" | tee /etc/apt/sources.list.d/robotpkg.list \
+    && apt-get update && apt-get install --no-install-recommends -qqy robotpkg-pinocchio
+
+# install libfranka
+RUN git clone --recurse-submodules https://github.com/frankaemika/libfranka.git \
+    && cd libfranka \
+    && git checkout ${LIBFRANKA_VERSION} \
+    && git submodule update \
+    && mkdir build \
+    && cd build \
+    && cmake -DCMAKE_BUILD_TYPE=Release -DCMAKE_PREFIX_PATH=/opt/openrobots/lib/cmake -DBUILD_TESTS=OFF .. \
+    && make \
+    && cpack -G DEB \
+    && sudo dpkg -i libfranka*.deb
 
 # Install packages specific for Franka and qb devices
 RUN apt-get update && apt-get install --no-install-recommends -qqy \
-    ros-${ROS_DISTRO}-libfranka \
+    # ros-${ROS_DISTRO}-libfranka \
 	ros-${ROS_DISTRO}-franka-ros \
-    ros-${ROS_DISTRO}-qb-move \
-    ros-${ROS_DISTRO}-gazebo-ros-pkgs
+    ros-${ROS_DISTRO}-qb-move
 
 ARG MYUID=1000
 ARG MYGID=1000
