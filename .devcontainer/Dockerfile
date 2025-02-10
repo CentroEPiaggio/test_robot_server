@@ -37,7 +37,8 @@ RUN apt-get update && apt-get install --no-install-recommends -qqy \
 RUN apt-get update && apt-get install --no-install-recommends -qqy \
     ros-${ROS_DISTRO}-libfranka \
 	ros-${ROS_DISTRO}-franka-ros \
-    ros-${ROS_DISTRO}-qb-move
+    ros-${ROS_DISTRO}-qb-move \
+    ros-${ROS_DISTRO}-gazebo-ros-pkgs
 
 ARG MYUID=1000
 ARG MYGID=1000
