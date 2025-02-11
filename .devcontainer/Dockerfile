@@ -1,7 +1,7 @@
 # Change ROS version in build.sh, not here!
 ARG BASE_IMAGE=osrf/ros
 ARG BASE_TAG=noetic-desktop
-ARG LIBFRANKA_VERSION=0.13.0
+# ARG LOCAL_LIBFRANKA_VERSION=0.13.2
 
 FROM ${BASE_IMAGE}:${BASE_TAG}
 
@@ -15,7 +15,9 @@ RUN apt-get update && apt-get install --no-install-recommends -qqy \
     git \
     sudo \
     wget \
-    gdb
+    gdb \
+    nano \
+    iputils-ping
 
 # Install packages specific for ROS 1
 # RUN --mount=type=cache,sharing=locked,target=/var/cache/apt --mount=type=cache,sharing=locked,target=/var/lib/apt \
@@ -33,7 +35,8 @@ RUN apt-get update && apt-get install --no-install-recommends -qqy \
     ros-${ROS_DISTRO}-tf2-geometry-msgs \
     ros-${ROS_DISTRO}-rviz-visual-tools \
 	ros-${ROS_DISTRO}-plotjuggler-ros \
-    ros-${ROS_DISTRO}-gazebo-ros-pkgs
+    ros-${ROS_DISTRO}-gazebo-ros-pkgs \
+    ros-${ROS_DISTRO}-boost-sml
 
 # depends of libfranka
 RUN apt-get update && apt-get install --no-install-recommends -qqy \
@@ -50,9 +53,9 @@ RUN mkdir -p /etc/apt/keyrings \
     && apt-get update && apt-get install --no-install-recommends -qqy robotpkg-pinocchio
 
 # install libfranka
-RUN git clone --recurse-submodules https://github.com/frankaemika/libfranka.git \
+RUN git clone --recurse-submodules https://github.com/frankaemika/libfranka.git  libfranka\
     && cd libfranka \
-    && git checkout ${LIBFRANKA_VERSION} \
+    && git checkout 0.13.2 \
     && git submodule update \
     && mkdir build \
     && cd build \
@@ -64,13 +67,15 @@ RUN git clone --recurse-submodules https://github.com/frankaemika/libfranka.git 
 # Install packages specific for Franka and qb devices
 RUN apt-get update && apt-get install --no-install-recommends -qqy \
     # ros-${ROS_DISTRO}-libfranka \
-	ros-${ROS_DISTRO}-franka-ros \
+	# ros-${ROS_DISTRO}-franka-ros \
     ros-${ROS_DISTRO}-qb-move
 
+# default USER
 ARG MYUID=1000
 ARG MYGID=1000
 ARG USER=docker
 ARG PWDR=/
+ENV WORKDIR=${PWDR}
 
 RUN OLD_USER=$(awk -v uid="$MYUID" -F ':' '$3==uid {print $1}' /etc/passwd) \
     && if [ -z "${OLD_USER}" ]; then \
@@ -87,6 +92,34 @@ RUN OLD_USER=$(awk -v uid="$MYUID" -F ':' '$3==uid {print $1}' /etc/passwd) \
         && echo ${USER}" ALL=(ALL) NOPASSWD: ALL" >> /etc/sudoers.d/99_aptget \
         && chmod 0440 /etc/sudoers.d/99_aptget && chown root:root /etc/sudoers.d/99_aptget ; \
     fi
+   
+# - add real-time capabilities - #    
+# Ensure user exists and is in the 'realtime' group
+RUN groupadd realtime \
+    && if id "$USER" &>/dev/null; then \
+      usermod -a -G realtime "$USER"; \
+    else \
+      groupadd -g $MYGID $USER && \
+      useradd -m -u $MYUID -g $MYGID -G realtime -s /bin/bash $USER; \
+    fi \
+    && echo "$USER ALL=(ALL) NOPASSWD: ALL" >> /etc/sudoers
+
+# # Ensure real-time limits are set in /etc/security/limits.conf
+# RUN grep -qxF '@realtime soft rtprio 99' /etc/security/limits.conf || echo "@realtime soft rtprio 99" >> /etc/security/limits.conf && \
+#     grep -qxF '@realtime soft priority 99' /etc/security/limits.conf || echo "@realtime soft priority 99" >> /etc/security/limits.conf && \
+#     grep -qxF '@realtime soft memlock 102400' /etc/security/limits.conf || echo "@realtime soft memlock 102400" >> /etc/security/limits.conf && \
+#     grep -qxF '@realtime hard rtprio 99' /etc/security/limits.conf || echo "@realtime hard rtprio 99" >> /etc/security/limits.conf && \
+#     grep -qxF '@realtime hard priority 99' /etc/security/limits.conf || echo "@realtime hard priority 99" >> /etc/security/limits.conf && \
+#     grep -qxF '@realtime hard memlock 102400' /etc/security/limits.conf || echo "@realtime hard memlock 102400" >> /etc/security/limits.conf
+
+# Insert real-time limits at the end of the file
+RUN sed -i '/# End of file/i \
+@realtime soft rtprio 99\n\
+@realtime soft priority 99\n\
+@realtime soft memlock 102400\n\
+@realtime hard rtprio 99\n\
+@realtime hard priority 99\n\
+@realtime hard memlock 102400\n' /etc/security/limits.conf
 
 # Choose to run as user
 ENV USER=${USER}

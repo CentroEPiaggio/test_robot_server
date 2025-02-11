@@ -19,7 +19,7 @@ docker run \
     -it \
     `# Clean up the container after exit.` \
     --rm \
-    `# Unable GUI.` \
+    `# Enable GUI.` \
     --env="DISPLAY=$DISPLAY" \
     --env="QT_X11_NO_MITSHM=1" \
     --volume="/tmp/.X11-unix:/tmp/.X11-unix:rw" \
@@ -47,5 +47,9 @@ docker run \
     `# Matplotlib environment variable.` \
     --env="MPLCONFIGDIR=/home/$USER/.matplotlib" \
     --env="XDG_RUNTIME_DIR=/tmp/runtime-$USER" \
+    `# Enable real-time capabilities.` \
+    --cap-add=sys_nice \
+  	--ulimit rtprio=99 \
+  	--ulimit memlock=102400 \
     ${IMAGE_NAME} \
     bash
