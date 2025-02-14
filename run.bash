@@ -9,7 +9,7 @@ then
 fi
 
 # TODO: Change image name if you wish (here and in build.sh).
-IMAGE_NAME=ros1_franka_qb
+IMAGE_NAME=ros2_franka
 
 xhost +
 docker run \

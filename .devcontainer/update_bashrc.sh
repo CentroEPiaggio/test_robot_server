@@ -1,5 +1,9 @@
+
 # Adding all the necessary ros sourcing
 echo "" >> ~/.bashrc
-echo "## ROS" >> ~/.bashrc
+echo "## ROS 2" >> ~/.bashrc
 echo 'source /opt/ros/$ROS_DISTRO/setup.bash' >> ~/.bashrc
-echo 'sudo chown -R $USER:$USER /home/$USER/.config' >> ~/.bashrc
+if [[ $(echo "$ubuntu_version < 24.04" | bc -l) -eq 1 ]]; then
+    echo "source /usr/share/colcon_argcomplete/hook/colcon-argcomplete.bash" >> ~/.bashrc
+fi
+fi

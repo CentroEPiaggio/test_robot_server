@@ -1,6 +1,6 @@
 # Change ROS version in build.sh, not here!
 ARG BASE_IMAGE=osrf/ros
-ARG BASE_TAG=noetic-desktop
+ARG BASE_TAG=jazzy-desktop
 # ARG LOCAL_LIBFRANKA_VERSION=0.13.2
 
 FROM ${BASE_IMAGE}:${BASE_TAG}
@@ -21,22 +21,22 @@ RUN apt-get update && apt-get install --no-install-recommends -qqy \
 
 # Install packages specific for ROS 1
 # RUN --mount=type=cache,sharing=locked,target=/var/cache/apt --mount=type=cache,sharing=locked,target=/var/lib/apt \
-RUN apt-get update && apt-get install --no-install-recommends -qqy \
-    ros-${ROS_DISTRO}-catkin \
-    python3-catkin-tools \
-    python3-osrf-pycommon \
-    ros-${ROS_DISTRO}-gazebo-ros \
-	ros-${ROS_DISTRO}-rqt \
-	ros-${ROS_DISTRO}-rqt-common-plugins \
-	ros-${ROS_DISTRO}-controller-interface \
-	ros-${ROS_DISTRO}-controller-manager \
-	ros-${ROS_DISTRO}-ros-control \
-	ros-${ROS_DISTRO}-ros-controllers \
-    ros-${ROS_DISTRO}-tf2-geometry-msgs \
-    ros-${ROS_DISTRO}-rviz-visual-tools \
-	ros-${ROS_DISTRO}-plotjuggler-ros \
-    ros-${ROS_DISTRO}-gazebo-ros-pkgs \
-    ros-${ROS_DISTRO}-boost-sml
+# RUN apt-get update && apt-get install --no-install-recommends -qqy \
+#     ros-${ROS_DISTRO}-catkin \
+#     python3-catkin-tools \
+#     python3-osrf-pycommon \
+#     ros-${ROS_DISTRO}-gazebo-ros \
+# 	ros-${ROS_DISTRO}-rqt \
+# 	ros-${ROS_DISTRO}-rqt-common-plugins \
+# 	ros-${ROS_DISTRO}-controller-interface \
+# 	ros-${ROS_DISTRO}-controller-manager \
+# 	ros-${ROS_DISTRO}-ros-control \
+# 	ros-${ROS_DISTRO}-ros-controllers \
+#     ros-${ROS_DISTRO}-tf2-geometry-msgs \
+#     ros-${ROS_DISTRO}-rviz-visual-tools \
+# 	ros-${ROS_DISTRO}-plotjuggler-ros \
+#     ros-${ROS_DISTRO}-gazebo-ros-pkgs \
+#     ros-${ROS_DISTRO}-boost-sml
 
 # depends of libfranka
 RUN apt-get update && apt-get install --no-install-recommends -qqy \
@@ -63,12 +63,6 @@ RUN git clone --recurse-submodules https://github.com/frankaemika/libfranka.git 
     && make \
     && cpack -G DEB \
     && sudo dpkg -i libfranka*.deb
-
-# Install packages specific for Franka and qb devices
-RUN apt-get update && apt-get install --no-install-recommends -qqy \
-    # ros-${ROS_DISTRO}-libfranka \
-	# ros-${ROS_DISTRO}-franka-ros \
-    ros-${ROS_DISTRO}-qb-move
 
 # default USER
 ARG MYUID=1000
@@ -131,10 +125,10 @@ ENV HOME=/home/${USER}
 # Set up environment
 COPY ./.devcontainer/update_bashrc.sh /sbin/update_bashrc.sh
 
-RUN sudo chmod +x /sbin/update_bashrc.sh ; sudo chown ${USER} /sbin/update_bashrc.sh \
-    && echo 'echo "source '${PWDR}'/devel/setup.bash" >> ~/.bashrc' >> /sbin/update_bashrc.sh \
-    && cat /sbin/update_bashrc.sh \
-    && sync ; /bin/bash -c /sbin/update_bashrc.sh ; sudo rm /sbin/update_bashrc.sh
+RUN sudo chmod +x /sbin/update_bashrc_ros_2 ; sudo chown ${USER} /sbin/update_bashrc_ros_2 \
+    && echo 'echo "source '${PWDR}'/install/setup.bash" >> ~/.bashrc' >> /sbin/update_bashrc_ros_2 \
+    && cat /sbin/update_bashrc_ros_2 \
+    && sync ; /bin/bash -c /sbin/update_bashrc_ros_2 ; sudo rm /sbin/update_bashrc_ros_2
 
 # Change entrypoint to source ~/.bashrc and start in ~
 COPY ./.devcontainer/entrypoint.sh /entrypoint.sh
