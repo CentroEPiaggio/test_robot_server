@@ -53,7 +53,7 @@ RUN mkdir -p /etc/apt/keyrings \
     && apt-get update && apt-get install --no-install-recommends -qqy robotpkg-pinocchio
 
 # install libfranka
-RUN git clone --recurse-submodules https://github.com/frankaemika/libfranka.git  libfranka\
+RUN git clone --recurse-submodules https://github.com/frankaemika/libfranka.git  /libfranka \
     && cd libfranka \
     && git checkout 0.13.2 \
     && git submodule update \
