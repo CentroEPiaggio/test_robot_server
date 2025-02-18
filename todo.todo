@@ -1,3 +1,4 @@
+☐ setup missing packages!
 ☐ CONTAINER_NAME as default argument in run.bash (e.g. './run.bash [name]'). Useful for attach.sh (to do!)
 ☐ the vscode image building is not working properly, have to recompile catkin if terminal is used.
 
