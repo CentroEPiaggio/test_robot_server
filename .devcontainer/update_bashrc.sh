@@ -2,8 +2,9 @@
 # Adding all the necessary ros sourcing
 echo "" >> ~/.bashrc
 echo "## ROS 2" >> ~/.bashrc
-echo 'source /opt/ros/$ROS_DISTRO/setup.bash' >> ~/.bashrc
-if [[ $(echo "$ubuntu_version < 24.04" | bc -l) -eq 1 ]]; then
-    echo "source /usr/share/colcon_argcomplete/hook/colcon-argcomplete.bash" >> ~/.bashrc
-fi
-fi
+echo 'source /opt/ros/humble/setup.bash' >> ~/.bashrc
+echo "source /usr/share/colcon_argcomplete/hook/colcon-argcomplete.bash" >> ~/.bashrc
+echo "source $WORKDIR/install/setup.bash" >> ~/.bashrc
+# if [[ $(echo "$ubuntu_version < 24.04" | bc -l) -eq 1 ]]; then
+#     echo "source /usr/share/colcon_argcomplete/hook/colcon-argcomplete.bash" >> ~/.bashrc
+# fi

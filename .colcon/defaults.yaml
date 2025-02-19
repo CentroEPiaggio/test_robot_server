@@ -1,0 +1,12 @@
+build:
+  base-paths:
+    - "$(WORKDIR)/ros2_franka"     # Adjust this path to your workspace location
+  symlink-install: true
+
+test:
+  base-paths:
+    - "$(WORKDIR)/ros2_franka"     # Same workspace path
+
+# You can add more sections if needed, e.g. for custom cmake args:
+# cmake-args:
+#   - -DCMAKE_BUILD_TYPE=Release

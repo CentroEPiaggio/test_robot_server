@@ -9,7 +9,7 @@ IMAGE_NAME=ros2_franka
 
 # =============================== Preliminaries ============================== #
 
-mkdir -p build logs src devel
+# mkdir -p build logs src devel
 mkdir -p ~/.vscode ~/.vscode-server ~/.config/Code
 
 # =============================== Help Function ============================== #

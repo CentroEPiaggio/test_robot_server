@@ -155,15 +155,18 @@ USER ${USER}
 # Change HOME environment variable
 ENV HOME=/home/${USER}
 
-# Set up environment
-COPY ./.devcontainer/update_bashrc.sh /sbin/update_bashrc.sh
-
-RUN sudo chmod +x /sbin/update_bashrc.sh ; sudo chown ${USER} /sbin/update_bashrc.sh \
-    && echo 'echo "source '${PWDR}'/install/setup.bash" >> ~/.bashrc' >> /sbin/update_bashrc.sh \
-    && echo "source /opt/ros/humble/setup.bash" >> /home/$USERNAME/.bashrc \
-    && echo "source /usr/share/colcon_argcomplete/hook/colcon-argcomplete.bash" >> /home/$USERNAME/.bashrc \
-    && cat /sbin/update_bashrc.sh \
-    && sync ; /bin/bash -c /sbin/update_bashrc.sh ; sudo rm /sbin/update_bashrc.sh
+# Set up .bashrc
+# COPY ./.devcontainer/update_bashrc.sh /sbin/update_bashrc.sh
+# RUN sudo chmod +x /sbin/update_bashrc.sh ; sudo chown ${USER} /sbin/update_bashrc.sh \
+#     && echo 'echo "source '${PWDR}'/install/setup.bash" >> ~/.bashrc' >> /sbin/update_bashrc.sh \
+#     && echo "source /opt/ros/humble/setup.bash" >> /home/$USER/.bashrc \
+#     && echo "source /usr/share/colcon_argcomplete/hook/colcon-argcomplete.bash" >> /home/$USER/.bashrc \
+#     && cat /sbin/update_bashrc.sh \
+#     && sync ; /bin/bash -c /sbin/update_bashrc.sh ; sudo rm /sbin/update_bashrc.sh
+RUN echo "" >> $HOME/.bashrc \
+    && echo "source /opt/ros/humble/setup.bash" >> $HOME/.bashrc \
+    && echo "source /usr/share/colcon_argcomplete/hook/colcon-argcomplete.bash" >> $HOME/.bashrc \
+    && echo "source ${PWDR}/install/setup.bash" >> $HOME/.bashrc
 
 # Install the missing ROS 2 dependencies for franka_ros2
 COPY ./src/franka_ros2/ /tmp_ws/
@@ -185,5 +188,6 @@ RUN sudo chmod +x /entrypoint.sh ; sudo chown ${USER} /entrypoint.sh \
 # Clean image
 RUN sudo apt clean && sudo rm -rf /var/lib/apt/lists/*
 
+ENV COLCON_DEFAULTS_FILE=${PWDR}/.colcon
 ENTRYPOINT ["/entrypoint.sh"]
 CMD ["bash"]
