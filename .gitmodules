@@ -1,0 +1,4 @@
+[submodule "franka_ros2"]
+	path = src/franka_ros2
+	url = https://github.com/frankaemika/franka_ros2.git
+    branch = humble
