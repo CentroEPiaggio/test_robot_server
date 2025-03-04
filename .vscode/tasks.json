@@ -2,15 +2,13 @@
 	"version": "2.0.0",
 	"tasks": [
 		{
-			"type": "catkin",
+			"type": "colcon",
 			"args": [
 				"build",
 				"--cmake-args",
 				"-DCMAKE_BUILD_TYPE=Debug"
 			],
-			"problemMatcher": [
-				"$catkin-gcc"
-			],
+			"problemMatcher": [],
 			"group": {
 				"kind": "build",
 				"isDefault": true
