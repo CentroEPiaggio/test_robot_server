@@ -1,9 +1,10 @@
 // For format details, see https://aka.ms/devcontainer.json. For config options, see the
 // README at: https://github.com/devcontainers/templates/tree/main/src/docker-existing-dockerfile
 {
-	"name": "ros1_franka_qb_dev",
-	"image": "ros1_franka_qb",
-
+	"name": "ROS2 Franka Dev",
+    "dockerComposeFile": "docker-compose.yml",
+    "service": "ros2_franka",
+	"workspaceFolder": "${localWorkspaceFolder}",
 	// // local mount point
 	// "workspaceMount": "source=${localWorkspaceFolder}/sub-folder,target=/workspace,type=bind,consistency=cached",
 	// // default path used

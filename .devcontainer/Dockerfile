@@ -145,7 +145,7 @@ USER ${USER}
 ENV HOME=/home/${USER}
 
 # Set up .bashrc
-# COPY ./.devcontainer/update_bashrc.sh /sbin/update_bashrc.sh
+# COPY ./update_bashrc.sh /sbin/update_bashrc.sh
 # RUN sudo chmod +x /sbin/update_bashrc.sh ; sudo chown ${USER} /sbin/update_bashrc.sh \
 #     && echo 'echo "source '${PWDR}'/install/setup.bash" >> ~/.bashrc' >> /sbin/update_bashrc.sh \
 #     && echo "source /opt/ros/humble/setup.bash" >> /home/$USER/.bashrc \
@@ -170,7 +170,7 @@ RUN echo "" >> $HOME/.bashrc \
 #     && rm -rf /home/$USER/.ros
 
 # Change entrypoint to source ~/.bashrc and start in ~
-COPY ./.devcontainer/entrypoint.sh /entrypoint.sh
+COPY ./entrypoint.sh /entrypoint.sh
 RUN sudo chmod +x /entrypoint.sh ; sudo chown ${USER} /entrypoint.sh \
     && echo "cd "${PWDR} >> /entrypoint.sh \
     && echo 'exec bash -i -c $@' >> /entrypoint.sh \

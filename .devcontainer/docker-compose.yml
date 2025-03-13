@@ -1,0 +1,74 @@
+version: "3.9"
+
+services:
+  ros2_franka:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        # These pass through your host environment for matching UID/GID
+        BASE_IMAGE: ros
+        BASE_TAG: humble-ros-base
+        MYUID: "${MYUID}"
+        MYGID: "${MYGID}"
+        USER: "${USER}"
+        PWDR: "${PWD}"
+
+    # container_name: ros2_franka_dev
+
+    # Equivalent to --net=host
+    network_mode: host
+
+    # environment variables
+    environment:
+      - DISPLAY
+      - QT_X11_NO_MITSHM=1
+      - XAUTHORITY=/tmp/.docker.xauth
+      # - HISTFILE=/home/.bash_history
+      # - HISTFILESIZE
+      # PulseAudio
+      - PULSE_SERVER=unix:${XDG_RUNTIME_DIR}/pulse/native
+      # For matplotlib, etc.
+      # - MPLCONFIGDIR=/home/${USER}/.matplotlib
+      # Use a tmp runtime directory if you prefer
+      - XDG_RUNTIME_DIR=/tmp/runtime-${USER}
+
+    volumes:
+      # X11 socket
+      - /tmp/.X11-unix:/tmp/.X11-unix:rw
+      # XAUTH file (if your entrypoint script needs it or you created it on host)
+      - /tmp/.docker.xauth:/tmp/.docker.xauth
+      # /dev/dri for GPU acceleration (Intel, etc.)
+      - /dev/dri:/dev/dri
+      # Current folder
+      - .:${PWD}
+      # Bash history
+      - ~/.bash_history:/home/.bash_history
+      # PulseAudio socket
+      - ${XDG_RUNTIME_DIR}/pulse/native:${XDG_RUNTIME_DIR}/pulse/native
+      # Shared memory
+      - /dev/shm:/dev/shm
+      # VS Code-related folders
+      - /home/${USER}/.vscode:/home/${USER}/.vscode
+      - /home/${USER}/.vscode-server:/home/${USER}/.vscode-server
+      - /home/${USER}/.config/Code:/home/${USER}/.config/Code
+
+    # devices
+    devices:
+      - /dev/snd
+
+    # group_add: if you want to match the host's audio group
+    # This can be a numeric GID or "audio" if Docker recognizes it
+    group_add:
+      - "audio"
+
+    # real-time privileges
+    cap_add:
+      - SYS_NICE
+
+    ulimits:
+      rtprio: 99
+      memlock: 102400
+
+    # Default command: open a bash shell
+    command: [ "bash" ]
