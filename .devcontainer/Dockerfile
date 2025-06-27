@@ -80,7 +80,8 @@ ENV LD_LIBRARY_PATH="/usr/local/lib:/usr/lib:/opt/openrobots/lib:${LD_LIBRARY_PA
 # Run ldconfig to update the linker cache
 RUN ldconfig
 RUN apt update && apt install --no-install-recommends -qqy \
-    ros-humble-pinocchio
+    ros-humble-pinocchio \
+    python3-pip
 
 # install libfranka
 RUN git clone --recurse-submodules https://github.com/frankaemika/libfranka.git  /libfranka \

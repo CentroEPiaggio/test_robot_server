@@ -41,4 +41,6 @@
 
 	// Execute after start container
 	// "postStartCommand": "bash ./.devcontainer/init.bash"
+
+	// "runArgs": ["--name", "ros2_franka_dev"]
 }

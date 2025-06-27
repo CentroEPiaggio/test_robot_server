@@ -1,15 +1,15 @@
 {
-    // Use IntelliSense to learn about possible attributes.
-    // Hover to view descriptions of existing attributes.
-    // For more information, visit: https://go.microsoft.com/fwlink/?linkid=830387
-    "version": "0.2.0",
-    "configurations": [
+	// Use IntelliSense to learn about possible attributes.
+	// Hover to view descriptions of existing attributes.
+	// For more information, visit: https://go.microsoft.com/fwlink/?linkid=830387
+	"version": "0.2.0",
+	"configurations": [
 		{
 			"name": "ROS: Launch",
 			"type": "ros",
 			"request": "launch",
 			// "sourceFileMap": {
-            //     "/home/user/project/file.hpp" : "/home/YourNameBeyondDocker/project/file.hpp"
+			//     "/home/user/project/file.hpp" : "/home/YourNameBeyondDocker/project/file.hpp"
 			// },
 			// "sourceFileMap": {"workspaces/.../ros1_franka_qb/src":"${workspaceFolder}"}, 
 			// "sourceFileMap": "workspaces/.../ros1_franka_qb/src",
@@ -20,6 +20,13 @@
 			"name": "ROS: Attach",
 			"type": "ros",
 			"request": "attach"
+		},
+		{
+			"name": "Python",
+			"type": "debugpy",
+			"request": "launch",
+			"program": "${file}",
+			"console": "integratedTerminal"
 		}
-    ]
+	]
 }
