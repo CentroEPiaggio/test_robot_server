@@ -49,7 +49,10 @@ docker run \
     --env="XDG_RUNTIME_DIR=/tmp/runtime-$USER" \
     `# Enable real-time capabilities.` \
     --cap-add=sys_nice \
+    --cap-add=SYS_RESOURCE \
   	--ulimit rtprio=99 \
-  	--ulimit memlock=102400 \
+  	`# --ulimit memlock=102400` \
+    --ulimit memlock=-1:-1 \
     ${IMAGE_NAME} \
     bash
+    

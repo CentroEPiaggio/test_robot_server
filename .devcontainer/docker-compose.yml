@@ -65,10 +65,14 @@ services:
     # real-time privileges
     cap_add:
       - SYS_NICE
+      - SYS_RESOURCE
 
     ulimits:
       rtprio: 99
-      memlock: 102400
+      # memlock: 102400
+      memlock:
+        soft: -1
+        hard: -1
 
     # Default command: open a bash shell
     command: [ "bash" ]
