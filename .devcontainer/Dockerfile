@@ -68,7 +68,9 @@ RUN apt update && apt install -y --no-install-recommends \
     ros-humble-moveit-simple-controller-manager \
     ros-humble-rviz2 \
     ros-humble-xacro \
-    ros-humble-ign-ros2-control
+    ros-humble-ign-ros2-control \
+    ros-humble-rqt-common-plugins \
+    xterm
 
 # Install Pinocchio and its dependencies
 RUN mkdir -p /etc/apt/keyrings \
@@ -145,37 +147,20 @@ USER ${USER}
 # Change HOME environment variable
 ENV HOME=/home/${USER}
 
-# Set up .bashrc
-# COPY ./update_bashrc.sh /sbin/update_bashrc.sh
-# RUN sudo chmod +x /sbin/update_bashrc.sh ; sudo chown ${USER} /sbin/update_bashrc.sh \
-#     && echo 'echo "source '${PWDR}'/install/setup.bash" >> ~/.bashrc' >> /sbin/update_bashrc.sh \
-#     && echo "source /opt/ros/humble/setup.bash" >> /home/$USER/.bashrc \
-#     && echo "source /usr/share/colcon_argcomplete/hook/colcon-argcomplete.bash" >> /home/$USER/.bashrc \
-#     && cat /sbin/update_bashrc.sh \
-#     && sync ; /bin/bash -c /sbin/update_bashrc.sh ; sudo rm /sbin/update_bashrc.sh
 RUN echo "" >> $HOME/.bashrc \
+    && echo "export PS1='[\[\e[1;34m\]DOCKER\[\e[0m\]]\u@\h:\w\$ '" >> $HOME/.bashrc \
     && echo "source /opt/ros/humble/setup.bash" >> $HOME/.bashrc \
     && echo "source /usr/share/colcon_argcomplete/hook/colcon-argcomplete.bash" >> $HOME/.bashrc \
     && echo "source ${PWDR}/install/setup.bash" >> $HOME/.bashrc \
     && echo "export RCUTILS_COLORIZED_OUTPUT=1" >> $HOME/.bashrc \
     && echo "export RCUTILS_CONSOLE_OUTPUT_FORMAT='[{severity} {time}] [{name}]: {message} ({function_name}() at {file_name}:{line_number})'" >> $HOME/.bashrc
 
-# Install the missing ROS 2 dependencies for franka_ros2
-# COPY ./src/franka_ros2/ /tmp_ws/
-# RUN sudo chown -R $USER:$USER /tmp_ws \
-#     && vcs import /tmp_ws < /tmp_ws/franka.repos --recursive --skip-existing \
-#     && cd /tmp_ws \
-#     && sudo apt update \
-#     && rosdep update \
-#     && rosdep install --from-paths /tmp_ws --ignore-src --rosdistro humble -y \
-#     && rm -rf /home/$USER/.ros
-
 # Change entrypoint to source ~/.bashrc and start in ~
 COPY ./entrypoint.sh /entrypoint.sh
 RUN sudo chmod +x /entrypoint.sh ; sudo chown ${USER} /entrypoint.sh \
     && echo "cd "${PWDR} >> /entrypoint.sh \
-    && echo 'exec bash -i -c $@' >> /entrypoint.sh \
-    && cat /entrypoint.sh
+    && echo 'exec bash -i -c $@' >> /entrypoint.sh
+    # && cat /entrypoint.sh
 
 # Clean image
 RUN sudo apt clean && sudo rm -rf /var/lib/apt/lists/*
