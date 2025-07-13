@@ -10,6 +10,9 @@ ENV DEBIAN_FRONTEND=noninteractive \
     LANG=C.UTF-8 \
     LC_ALL=C.UTF-8 \
     ROS_DISTRO=humble
+# Ensure libraries are found at runtime
+# ENV LD_LIBRARY_PATH="/usr/local/lib:/usr/lib:/opt/openrobots/lib:${LD_LIBRARY_PATH}"  # LD_LIBRARY_PATH not in the base image
+ENV LD_LIBRARY_PATH="/usr/local/lib:/usr/lib:/opt/openrobots/lib"
 
 # Install sudo, and some essential packages
 RUN apt update && apt install --no-install-recommends -qqy \
@@ -23,14 +26,14 @@ RUN apt update && apt install --no-install-recommends -qqy \
     iputils-ping \
     curl \
     openssh-client \
-    python3-colcon-argcomplete \
-    python3-colcon-common-extensions \
     libeigen3-dev \
     libpoco-dev \
     libyaml-cpp-dev \
     liburdfdom-dev \
     libfmt-dev \
-    lsb-release 
+    lsb-release \
+    xterm \
+    python3-pip
 
 # install ignition gazebo
 # RUN curl https://packages.osrfoundation.org/gazebo.gpg --output /usr/share/keyrings/pkgs-osrf-archive-keyring.gpg
@@ -40,6 +43,8 @@ RUN apt update && apt install --no-install-recommends -qqy \
 
 # Install some ROS 2 dependencies to create a cache layer
 RUN apt update && apt install -y --no-install-recommends \
+    python3-colcon-argcomplete \
+    python3-colcon-common-extensions \
     ros-humble-ros-gz \
     # ros-humble-ign-gazebo \
     ros-humble-sdformat-urdf \
@@ -69,21 +74,18 @@ RUN apt update && apt install -y --no-install-recommends \
     ros-humble-rviz2 \
     ros-humble-xacro \
     ros-humble-ign-ros2-control \
-    ros-humble-rqt-common-plugins \
-    xterm
+    ros-humble-rqt-common-plugins
 
 # Install Pinocchio and its dependencies
 RUN mkdir -p /etc/apt/keyrings \
     && curl -fsSL http://robotpkg.openrobots.org/packages/debian/robotpkg.asc | sudo tee /etc/apt/keyrings/robotpkg.asc \
     && echo "deb [arch=amd64 signed-by=/etc/apt/keyrings/robotpkg.asc] http://robotpkg.openrobots.org/packages/debian/pub $(lsb_release -cs) robotpkg" | tee /etc/apt/sources.list.d/robotpkg.list \
     && apt update && apt install --no-install-recommends -qqy robotpkg-pinocchio
-# Ensure libraries are found at runtime
-ENV LD_LIBRARY_PATH="/usr/local/lib:/usr/lib:/opt/openrobots/lib:${LD_LIBRARY_PATH}"
+
 # Run ldconfig to update the linker cache
 RUN ldconfig
 RUN apt update && apt install --no-install-recommends -qqy \
-    ros-humble-pinocchio \
-    python3-pip
+    ros-humble-pinocchio
 
 # install libfranka
 RUN git clone --recurse-submodules https://github.com/frankaemika/libfranka.git  /libfranka \
@@ -148,7 +150,7 @@ USER ${USER}
 ENV HOME=/home/${USER}
 
 RUN echo "" >> $HOME/.bashrc \
-    && echo "export PS1='[\[\e[1;34m\]DOCKER\[\e[0m\]]\u@\h:\w\$ '" >> $HOME/.bashrc \
+    && echo "export PS1='[\[\033[1;34m\]DOCKER\[\033[0m\]]${debian_chroot:+($debian_chroot)}\[\033[01;32m\]\u@\h\[\033[00m\]:\[\033[01;34m\]\w\[\033[00m\]\$ '" >> $HOME/.bashrc \
     && echo "source /opt/ros/humble/setup.bash" >> $HOME/.bashrc \
     && echo "source /usr/share/colcon_argcomplete/hook/colcon-argcomplete.bash" >> $HOME/.bashrc \
     && echo "source ${PWDR}/install/setup.bash" >> $HOME/.bashrc \
