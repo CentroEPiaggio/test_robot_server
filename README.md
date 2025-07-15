@@ -46,17 +46,17 @@ Take a look at https://docs.docker.com/develop/develop-images/dockerfile_best-pr
 
 To use VS Code with Docker, you have two method:
 - you can use the Dev Containers extension to attach VS Code to a running container. For having autocomplete, linting, etc. take a look at https://github.com/athackst/vscode_ros2_workspace and in particular to `c_cpp_properties.json` and `settings.json` in `.vscode`.
-- you can also compile the image from vscode. If the container is opened from vscode, the container will be persistent and you can install what you want without loosing it on code closing. However, the changes will be lost when you recreate the image, so pay attention.
+- you can also compile the image from vscode. If the container is opened from vscode, the container will be persistent and you can install what you want without loosing it on code closing. However, the changes will be lost when you recreate the container, so pay attention.
 
 ## Troubleshooting
 
 ## Authors
 
-[Davide De Benedittis](https://github.com/ddebenedittis)
 [Giorgio Simonini](https://github.com/GiorgioSimonini)
 
 
 ## Acknowledgments
 
+- [Davide De Benedittis](https://github.com/ddebenedittis)
 - [Baptiste Busch](https://medium.com/@baptiste.busch/creating-a-ros-or-ros2-workspace-in-docker-part-1-912529c87708): creation of a ROS workspace in Docker
 

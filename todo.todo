@@ -1,2 +1,17 @@
 ☐ for now use run_old.bash
-☐ colcon defaults not works
+☐ colcon defaults not working
+
+info:
+    run a node inside a predefined processor in launch file:
+        from launch_ros.actions import Node
+
+        Node(
+            package='my_package',
+            executable='my_node',
+            name='my_node',
+            prefix='taskset -c 2' # run on CPU 2
+        )
+    maybe needed in bashrc:
+        if [[ $(echo "$ubuntu_version < 24.04" | bc -l) -eq 1 ]]; then
+            echo "source /usr/share/colcon_argcomplete/hook/colcon-argcomplete.bash" >> ~/.bashrc
+        fi
