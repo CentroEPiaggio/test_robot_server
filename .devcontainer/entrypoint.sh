@@ -1,5 +1,5 @@
 #!/bin/bash
-set -e
+# set -e        # exit on error
 
 # XAUTH=/tmp/.docker.xauth
 

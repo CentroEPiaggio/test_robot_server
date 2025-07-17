@@ -137,10 +137,10 @@ RUN groupadd realtime \
 RUN sed -i '/# End of file/i \
 @realtime soft rtprio 99\n\
 @realtime soft priority 99\n\
-@realtime soft memlock 102400\n\
+@realtime soft memlock 1048576\n\
 @realtime hard rtprio 99\n\
 @realtime hard priority 99\n\
-@realtime hard memlock 102400\n' /etc/security/limits.conf
+@realtime hard memlock 1048576\n' /etc/security/limits.conf
 
 # Choose to run as user
 ENV USER=${USER}
@@ -153,7 +153,7 @@ RUN echo "" >> $HOME/.bashrc \
     && echo "export PS1='[\[\033[1;34m\]DOCKER\[\033[0m\]]${debian_chroot:+($debian_chroot)}\[\033[01;32m\]\u@\h\[\033[00m\]:\[\033[01;34m\]\w\[\033[00m\]\$ '" >> $HOME/.bashrc \
     && echo "source /opt/ros/humble/setup.bash" >> $HOME/.bashrc \
     && echo "source /usr/share/colcon_argcomplete/hook/colcon-argcomplete.bash" >> $HOME/.bashrc \
-    && echo "source ${PWDR}/install/setup.bash" >> $HOME/.bashrc \
+    && echo "[ -f \"${PWDR}/install/setup.bash\" ] && source \"${PWDR}/install/setup.bash\"" >> $HOME/.bashrc \
     && echo "export RCUTILS_COLORIZED_OUTPUT=1" >> $HOME/.bashrc \
     && echo "export RCUTILS_CONSOLE_OUTPUT_FORMAT='[{severity} {time}] [{name}]: {message} ({function_name}() at {file_name}:{line_number})'" >> $HOME/.bashrc
 

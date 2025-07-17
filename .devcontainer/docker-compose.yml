@@ -13,8 +13,9 @@ services:
         MYGID: "${MYGID}"
         USER: "${USER}"
         PWDR: "${PWD}"
+    env_file: .env
 
-    # container_name: ros2_franka_dev
+    container_name: ros2_franka_dev
 
     # Equivalent to --net=host
     network_mode: host
@@ -41,9 +42,9 @@ services:
       # /dev/dri for GPU acceleration (Intel, etc.)
       - /dev/dri:/dev/dri
       # Current folder
-      - .:${PWD}
+      - ..:${PWD}
       # Bash history
-      - ~/.bash_history:/home/.bash_history
+      # - ~/.bash_history:/home/.bash_history
       # PulseAudio socket
       - ${XDG_RUNTIME_DIR}/pulse/native:${XDG_RUNTIME_DIR}/pulse/native
       # Shared memory
@@ -69,10 +70,11 @@ services:
 
     ulimits:
       rtprio: 99
-      # memlock: 102400
       memlock:
-        soft: -1
-        hard: -1
+        soft: 1048576   # 1 GB in kilobytes
+        hard: 1048576
+        # soft: -1      # unlimited
+        # hard: -1
 
     # Default command: open a bash shell
     command: [ "bash" ]
