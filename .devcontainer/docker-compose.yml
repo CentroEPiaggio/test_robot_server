@@ -14,6 +14,7 @@ services:
         USER: "${USER}"
         PWDR: "${PWD}"
     env_file: .env
+    shm_size: '1gb'
 
     container_name: ros2_franka_dev
 
