@@ -16,7 +16,7 @@ services:
     env_file: .env
     shm_size: '1gb'
 
-    container_name: ros2_franka_dev
+    container_name: ros2_bifrank_dev
 
     # Equivalent to --net=host
     network_mode: host

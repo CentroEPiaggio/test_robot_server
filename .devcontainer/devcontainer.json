@@ -32,7 +32,8 @@
 				"eamodio.gitlens",
 				"github.copilot",
 				"ms-iot.vscode-ros",
-				"sandy081.todotasks"
+				"sandy081.todotasks",
+				"ms-python.python"
 			]
 		}
 	},
@@ -41,7 +42,7 @@
 	// "containerUser": "docker"
 
 	// Execute after start container
-	// "postStartCommand": "bash ./.devcontainer/init.bash"
+	"postStartCommand": "bash",
 	"overrideCommand": true,	// needed to have interactive behavior
 	"runArgs": ["-it", "--name", "ros2_franka_dev"]
 }
