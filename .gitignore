@@ -2,3 +2,4 @@ build/
 install/
 log/
 .devcontainer/.env
+.devcontainer/commandhistory/.bash_history

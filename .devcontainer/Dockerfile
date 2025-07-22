@@ -155,7 +155,9 @@ RUN echo "" >> $HOME/.bashrc \
     && echo "source /usr/share/colcon_argcomplete/hook/colcon-argcomplete.bash" >> $HOME/.bashrc \
     && echo "[ -f \"${PWDR}/install/setup.bash\" ] && source \"${PWDR}/install/setup.bash\"" >> $HOME/.bashrc \
     && echo "export RCUTILS_COLORIZED_OUTPUT=1" >> $HOME/.bashrc \
-    && echo "export RCUTILS_CONSOLE_OUTPUT_FORMAT='[{severity} {time}] [{name}]: {message} ({function_name}() at {file_name}:{line_number})'" >> $HOME/.bashrc
+    && echo "export RCUTILS_CONSOLE_OUTPUT_FORMAT='[{severity} {time}] [{name}]: {message} ({function_name}() at {file_name}:{line_number})'" >> $HOME/.bashrc \
+    && echo "touch ${PWDR}/.devcontainer/commandhistory/.bash_history" >> $HOME/.bashrc \
+    && echo "chown -R $USER ${PWDR}/.devcontainer/commandhistory" >> $HOME/.bashrc
 
 # Change entrypoint to source ~/.bashrc and start in ~
 COPY ./entrypoint.sh /entrypoint.sh
