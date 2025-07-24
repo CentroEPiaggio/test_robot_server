@@ -3,4 +3,4 @@
 export MYUID=$(id -u)
 export MYGID=$(id -g)
 
-docker-compose -f .devcontainer/docker-compose.yml build
+docker compose -f .devcontainer/docker-compose.yml build

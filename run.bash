@@ -16,4 +16,4 @@ export MYGID=$(id -g)
 #     chmod a+r $XAUTH
 # fi
 
-docker-compose -f .devcontainer/docker-compose.yml run --rm ros2_franka
+docker compose -f .devcontainer/docker-compose.yml run --rm ros2_franka
