@@ -1,0 +1,43 @@
+# Joint-space Lissajous test trajectory.
+#
+# The same file is used for every run, whichever controller is under test: it
+# is the fixed input of the comparison.
+
+/**:
+  ros__parameters:
+    trajectory_topic: "/mact/trajectory"
+    joint_state_topic: "/joint_states"
+    # As in the controller: joint names default to '<arm_id>_joint1..7'.
+    arm_id: "fr3"
+
+    # The controllers run at 1 kHz, so the reference is produced at 1 kHz too.
+    publish_rate_hz: 1000.0
+
+    # Centre of the motion: the Franka "start" pose. The approach phase drives
+    # the robot here from wherever it is, so every run begins identically.
+    centre: [0.0, -0.785398, 0.0, -2.356194, 0.0, 1.570796, 0.785398]
+
+    # q_d,i(t) = centre_i + s(t) * amplitude_i * sin(2*pi*frequency_i*t + phase_i)
+    #
+    # The frequencies are mutually incommensurate so that the joints do not
+    # repeat the same relative configuration: that is what makes the motion a
+    # Lissajous figure rather than a synchronised oscillation, and what keeps
+    # the regressor persistently exciting for the parameter adaptation.
+    amplitude: [0.30, 0.20, 0.30, 0.20, 0.40, 0.30, 0.50]
+    frequency: [0.13, 0.17, 0.19, 0.23, 0.29, 0.31, 0.37]
+    phase: [0.0, 1.570796, 3.141593, 4.712389, 0.0, 1.570796, 3.141593]
+
+    # Phase durations [s].
+    approach_duration: 5.0
+    ramp_duration: 2.0
+    run_duration: 30.0
+
+    # Refuse to start if centre +- amplitude leaves this range. These are the
+    # FR3 joint position limits.
+    position_min: [-2.7437, -1.7837, -2.9007, -3.0421, -2.8065, 0.5445, -3.0159]
+    position_max: [2.7437, 1.7837, 2.9007, -0.1518, 2.8065, 4.5169, 3.0159]
+
+    # Shut the node down once the motion is over, so that a launch file with
+    # on_exit handlers can stop the recording by itself.
+    stop_when_finished: true
+    hold_duration: 2.0

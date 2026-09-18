@@ -1,0 +1,41 @@
+# Settings specific to MactServerController (model served over topics).
+# Loaded on top of mact_common.yaml.
+#
+# The defaults mirror the 'inputs', 'topics' and 'services' entries of
+# franka_server/config/franka_conf.yaml.
+
+/**:
+  ros__parameters:
+    server:
+      topics:
+        # Published by the controller, consumed by the server.
+        q: "/controller/q"
+        dq: "/controller/dq"
+        ddq: "/controller/ddq"
+        dqr: "/controller/dqr"
+        ddqr: "/controller/ddqr"
+        par_REG: "/controller/par_REG"
+        par_DYN: "/controller/par_DYN"
+        # Published by the server, consumed by the controller.
+        Yr: "franka_server/Yr"
+        Y: "franka_server/Y"
+        reg2dyn: "franka_server/reg2dyn"
+        # Only subscribed when gravity.subtract is true. Requires the server to
+        # be regenerated with reg_G among its published topics.
+        reg_G: "franka_server/reg_G"
+
+      services:
+        get_par_REG: "franka_server/get_par_REG"
+
+      # A regressor older than this is not used: the controller drops the model
+      # term and runs the PD part alone rather than acting on a stale model.
+      # The server runs at 1 kHz, so one round trip is ~2 ms in the worst case.
+      timeout_ms: 5.0
+
+      # How long on_configure() waits for the server's get_par_REG service
+      # before giving up, which also enforces the launch ordering.
+      wait_timeout_s: 10.0
+
+      # Number of trailing values of reg2dyn that make up par_DYN: the
+      # symbolic blocks link1..EE, i.e. the last 80 of 100.
+      num_dynamic_parameters: 80

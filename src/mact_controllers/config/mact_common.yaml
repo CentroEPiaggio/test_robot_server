@@ -1,0 +1,138 @@
+# Parameters shared by BOTH MACT controllers.
+#
+# This file is deliberately node-agnostic ('/**') and is loaded by the
+# in-process controller and by the server-based one alike, so that the two
+# cannot drift apart: anything that is not the source of the model must be
+# literally the same on both sides for the comparison to be fair.
+#
+# Controller-specific settings live in mact_local.yaml and mact_server.yaml.
+
+/**:
+  ros__parameters:
+
+    # Joint naming: the controller uses '<arm_id>_joint1..7'.
+    # To use different names, add an explicit non-empty list here, e.g.
+    #   joints: ["fr3_joint1", ..., "fr3_joint7"]
+    # (an empty YAML list cannot be typed by the parameter parser, so the key
+    # must be omitted rather than left empty).
+    arm_id: "fr3"
+
+    # Shared interface, so that the trajectory generator and the bag
+    # configuration are identical for both controllers.
+    trajectory_topic: "/mact/trajectory"
+    state_topic: "/mact/state"
+
+    # ---------------------------------------------------------- control law --
+    # tau = Y_r(q, dq, dq_d, ddq_d) * pi_hat + k_v * e_dot + k_p * e
+    #
+    # The gains are NOT scaled by the mass matrix, so the closed-loop error
+    # dynamics are M(q) e_dd + k_v e_d + k_p e = 0 and each joint must be
+    # tuned against the inertia it actually sees. At the centre pose the model
+    # gives
+    #
+    #   diag(M) = [0.461, 1.445, 0.879, 0.789, 0.0279, 0.0326, 0.00491] kg m^2
+    #
+    # which spans almost three orders of magnitude: a single gain vector for
+    # all joints is meaningless here. The values below are
+    #
+    #   k_p = diag(M) * wn^2 ,  k_v = 2 * zeta * diag(M) * wn
+    #
+    # with wn = 30 rad/s (4.8 Hz) and zeta = 1, i.e. critically damped with a
+    # bandwidth well inside the 1 kHz loop (wn*T = 0.03).
+    #
+    # Do not simply raise these. A discrete velocity-feedback loop is stable
+    # only while k_v < 2*M/T, which for joint 7 at 1 kHz is k_v < 9.8; the
+    # gains of Franka's joint impedance examples (k_p 50, k_v 5 on joint 7)
+    # put that joint into a limit cycle at its velocity limit in Gazebo.
+    gains:
+      k_p: [415.1, 1300.5, 791.0, 709.9, 25.1, 29.3, 4.4]
+      k_v: [27.7, 86.7, 52.7, 47.3, 1.7, 2.0, 0.3]
+
+    # ----------------------------------------------------------- adaptation --
+    # Size of the Thunder regressor parameter vector par_REG: 10 joint blocks
+    # of 10 parameters (base, link0..link6, flange, EE).
+    num_parameters: 100
+
+    adaptation:
+      enabled: true
+
+      # Weight of the prediction error term gamma * Y^T * R_t * (tau - Y*pi_hat)
+      # of eq. (2).
+      #
+      # NOTE: keep this at 0.0 for the server-based controller until the server
+      # is regenerated with Y evaluated on the ACTUAL motion, Y(q, dq, ddq).
+      # The generated get_Y() currently shares its inputs with get_Yr(), so a
+      # single server instance evaluates both on the desired motion and the
+      # prediction error would be meaningless. The in-process controller has no
+      # such limitation: it re-evaluates get_Y() with the reference motion set
+      # to the measured one.
+      gamma: 0.0
+
+      # Diagonal of R_t, one entry per joint.
+      R_t: [1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0]
+
+      # Diagonal of R_p, factorised as link_gain * param_gain.
+      #
+      # One entry per joint block, in the order of the generated model:
+      #   base, link0, link1, link2, link3, link4, link5, link6, flange, EE
+      # 'base' is fixed, so its regressor columns are identically zero and its
+      # gain is irrelevant; 'EE' models a payload, which there is none of here,
+      # so it is frozen by default. Set it non-zero to estimate a payload.
+      R_p_link: [0.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 0.0]
+
+      # One entry per parameter inside a block, in the order Thunder uses:
+      #   m, m*c_x, m*c_y, m*c_z, I_xx, I_xy, I_xz, I_yy, I_yz, I_zz
+      # Masses, first moments and inertias differ by orders of magnitude, which
+      # is exactly why a single scalar gain is impractical here.
+      R_p_param: [1.0e-2, 1.0e-3, 1.0e-3, 1.0e-3,
+                  1.0e-4, 1.0e-4, 1.0e-4, 1.0e-4, 1.0e-4, 1.0e-4]
+
+      # pi_hat(0) is the nominal par_REG (queried from the server, or taken
+      # from the linked model) multiplied by this factor. Set it away from 1.0
+      # to start from a deliberately wrong estimate and watch the convergence.
+      initial_scale: 1.0
+
+    # -------------------------------------------------------------- filters --
+    # The hardware gives position and velocity only, so ddq is differentiated
+    # from the raw velocity. Cut-off frequencies in Hz; <= 0 disables a filter.
+    filters:
+      dq_cutoff_hz: 100.0
+      ddq_cutoff_hz: 30.0
+
+    # --------------------------------------------------------------- safety --
+    safety:
+      # FR3 joint torque limits.
+      max_torque: [87.0, 87.0, 87.0, 87.0, 12.0, 12.0, 12.0]
+      # Deactivate if any joint error exceeds this [rad]. 0 disables the check.
+      max_tracking_error: 0.5
+      # Beyond this age the reference is considered stale and the controller
+      # holds the last commanded position at rest.
+      trajectory_timeout_ms: 20.0
+
+    # -------------------------------------------------------------- gravity --
+    gravity:
+      # The commanded torque is made gravity-free: tau_cmd = tau_model - reg_G*pi_hat.
+      #
+      # This is required BOTH on the real robot and in simulation, and it is
+      # the same setting in both, which is what keeps the comparison fair:
+      #
+      #   * libfranka adds the commanded torque on top of its own gravity
+      #     compensation (franka_hardware passes the effort command straight to
+      #     franka::Torques, libfranka 0.15.0);
+      #   * franka_ign_ros2_control does exactly the same in simulation: its
+      #     IgnitionSystem::write() computes kdl_model_.gravity(q) and adds it
+      #     to every effort command before handing it to Gazebo.
+      #
+      # Commanding gravity here as well would therefore apply it twice.
+      #
+      # Needs reg_G: the in-process controller evaluates it directly; the
+      # server-based one needs the server to publish it, so add reg_G to the
+      # 'topics' list of franka_conf.yaml and regenerate. Until then the
+      # server-based controller runs the PD term alone (see the README).
+      subtract: true
+
+    # ---------------------------------------------------------- diagnostics --
+    diagnostics:
+      # One mact_msgs/MactState every N cycles; the loop timing is aggregated
+      # over the window so that no outlier is lost. 10 => 100 Hz at a 1 kHz loop.
+      publish_every_n_cycles: 10

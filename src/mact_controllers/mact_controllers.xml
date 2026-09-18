@@ -1,0 +1,24 @@
+<library path="mact_controllers">
+
+  <class name="mact_controllers/MactLocalController"
+         type="mact_controllers::MactLocalController"
+         base_class_type="controller_interface::ControllerInterface">
+    <description>
+      Modified Adaptive Computed Torque controller with the Thunder Dynamics
+      library linked in-process: the regressors are evaluated inside the
+      control loop, with no serialisation and no round trip.
+    </description>
+  </class>
+
+  <class name="mact_controllers/MactServerController"
+         type="mact_controllers::MactServerController"
+         base_class_type="controller_interface::ControllerInterface">
+    <description>
+      Modified Adaptive Computed Torque controller that carries no model: the
+      regressors are consumed from the topics published by the Thunder Robot
+      Server, and the controller keeps the server synchronised by publishing
+      its state and its parameter estimate.
+    </description>
+  </class>
+
+</library>

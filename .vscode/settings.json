@@ -1,3 +1,3 @@
 {
-    "remote.autoForwardPortsFallback": 0
+    "cmake.sourceDirectory": "/media/giorgio/data/GiorgioSimonini/PhD/utils/docker/ros2_franka_roscon/src/franka_server"
 }

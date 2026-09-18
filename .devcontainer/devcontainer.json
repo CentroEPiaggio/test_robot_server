@@ -1,7 +1,7 @@
 // For format details, see https://aka.ms/devcontainer.json. For config options, see the
 // README at: https://github.com/devcontainers/templates/tree/main/src/docker-existing-dockerfile
 {
-	"name": "ROS2 Franka Dev",
+	"name": "ROS2 Franka ROSCon Dev",
 	"initializeCommand": "echo \"MYUID=$(id -u)\\nMYGID=$(id -g)\" > .devcontainer/.env",
     "dockerComposeFile": "docker-compose.yml",
     "service": "ros2_franka",
@@ -44,5 +44,5 @@
 	// Execute after start container
 	"postStartCommand": "bash",
 	"overrideCommand": true,	// needed to have interactive behavior
-	"runArgs": ["-it", "--name", "ros2_franka_dev"]
+	"runArgs": ["-it", "--name", "ros2_franka_roscon_dev"]
 }

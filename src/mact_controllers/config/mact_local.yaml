@@ -1,0 +1,8 @@
+# Settings specific to MactLocalController (Thunder linked in-process).
+# Loaded on top of mact_common.yaml.
+
+/**:
+  ros__parameters:
+    # Optional override of the parameters compiled into the generated library.
+    # Empty means "use the values from the YAML the library was generated from".
+    parameter_file: ""

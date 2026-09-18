@@ -1,0 +1,35 @@
+<?xml version="1.0"?>
+<?xml-model href="http://download.ros.org/schema/package_format3.xsd" schematypens="http://www.w3.org/2001/XMLSchema"?>
+<package format="3">
+  <name>mact_controllers</name>
+  <version>0.1.0</version>
+  <description>
+    Two ros2_control implementations of the Modified Adaptive Computed Torque
+    (MACT) law for the 7-DoF Franka manipulator: one with the Thunder Dynamics
+    library linked in-process, one that obtains every model quantity from the
+    Thunder Robot Server over topics. Everything outside the model source is
+    shared between the two, so that comparing them measures the architecture
+    and nothing else.
+  </description>
+  <maintainer email="giorgio.simonini@phd.unipi.it">Giorgio Simonini</maintainer>
+  <license>Apache-2.0</license>
+
+  <buildtool_depend>ament_cmake</buildtool_depend>
+
+  <depend>controller_interface</depend>
+  <depend>eigen</depend>
+  <depend>franka_server</depend>
+  <depend>hardware_interface</depend>
+  <depend>mact_msgs</depend>
+  <depend>pluginlib</depend>
+  <depend>rclcpp</depend>
+  <depend>rclcpp_lifecycle</depend>
+  <depend>realtime_tools</depend>
+  <depend>thunder_franka</depend>
+  <depend>trajectory_msgs</depend>
+
+  <export>
+    <build_type>ament_cmake</build_type>
+    <controller_interface plugin="${prefix}/mact_controllers.xml"/>
+  </export>
+</package>

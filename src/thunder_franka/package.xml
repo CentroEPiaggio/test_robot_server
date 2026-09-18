@@ -1,0 +1,25 @@
+<?xml version="1.0"?>
+<?xml-model href="http://download.ros.org/schema/package_format3.xsd" schematypens="http://www.w3.org/2001/XMLSchema"?>
+<package format="3">
+  <name>thunder_franka</name>
+  <version>0.1.0</version>
+  <description>
+    Ament wrapper around the Thunder Dynamics generated library for the Franka
+    manipulator. The sources in src/ and include/ are produced by `thunder gen`
+    from franka_conf.yaml and must not be edited by hand: regenerate instead.
+    The package exists so that the model can be linked into a node (the
+    "in-process" alternative to the Robot Server) without duplicating the
+    generated code in every consumer.
+  </description>
+  <maintainer email="giorgio.simonini@phd.unipi.it">Giorgio Simonini</maintainer>
+  <license>Apache-2.0</license>
+
+  <buildtool_depend>ament_cmake</buildtool_depend>
+
+  <depend>eigen</depend>
+  <depend>yaml-cpp</depend>
+
+  <export>
+    <build_type>ament_cmake</build_type>
+  </export>
+</package>
