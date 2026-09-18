@@ -43,7 +43,6 @@ sys.path.append(os.path.dirname(__file__))
 from mact_launch_utils import (  # noqa: E402
     bag_recorder,
     controller_spawner,
-    gravity_server_node,
     robot_server_node,
     trajectory_node,
 )
@@ -70,10 +69,6 @@ def experiment_chain(context: LaunchContext):
         # Up first: the controller queries it for the initial estimate while
         # configuring.
         actions.append(robot_server_node(use_sim_time=False))
-        # Temporary: serves reg_G until the server is regenerated with it.
-        if context.perform_substitution(
-                LaunchConfiguration('gravity_server')).lower() == 'true':
-            actions.append(gravity_server_node(use_sim_time=False))
 
     mact = controller_spawner(controller, arm_id, use_sim_time=False)
 
@@ -119,12 +114,6 @@ def generate_launch_description():
             description='Run against the mock hardware instead of the robot.'),
         DeclareLaunchArgument(
             'record', default_value='true', description='Record a bag of the run.'),
-        DeclareLaunchArgument(
-            'gravity_server', default_value='true',
-            description='With controller:=server, also start a second server instance that '
-                        'serves reg_G (its dqr/ddqr are never published, so its Yr is exactly '
-                        'the gravity regressor). Set to false once franka_conf.yaml lists '
-                        'reg_G among its topics and the server has been regenerated.'),
         DeclareLaunchArgument(
             'use_rviz', default_value='false', description='Also start RViz.'),
 

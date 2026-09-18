@@ -26,28 +26,27 @@ On hardware, `real_experiment.launch.py controller:=... robot_ip:=172.16.0.3`.
 
 ## Results so far (Gazebo, 1 kHz, i9-12900H)
 
-Both controllers, same trajectory, same gains:
+Both controllers, same trajectory, same gains, full update law (`gamma = 1`, so the prediction error term of eq. (2) is active and both regressors are needed every cycle):
 
 | | in-process | server |
 |---|---|---|
-| tracking error, rms | 0.04364 rad | 0.04395 rad |
-| tracking error, max | 0.05314 rad | 0.05308 rad |
-| ‖π̂(T) − π̂(0)‖ | 0.003010 | 0.003008 |
-| `update()` mean | 186–215 µs | 13.5 µs |
-| `update()` worst | ~2000 µs | 448 µs |
-| model staleness | 0 | mean 0.83 ms, max 2–3 ms |
+| tracking error, rms | 0.04396 rad | 0.04381 rad |
+| tracking error, max | 0.05304 rad | 0.05287 rad |
+| ‖π̂(T) − π̂(0)‖ | 0.774 | 0.721 |
+| `update()` mean | 254 µs | 16 µs |
+| `update()` worst | 3409 µs | 772 µs |
+| model staleness | 0 | mean 0.78 ms, max 2.0 ms |
 | degraded cycles | 0 | 0 |
 
-The behaviour is the same to three or four digits — which is the point: the two differ only in where the model comes from. The cost is not the same. Note that the `update()` figures are wall-clock inside a loaded, non-real-time Gazebo process and vary by ~15 % between runs; they are a comparison between the two controllers on the same machine, not a real-time guarantee. See [`src/mact_controllers/README.md`](src/mact_controllers/README.md) for why the in-process number is five times its own microbenchmark (the generated `Yr` is 2.12 MiB of straight-line code and does not stay in cache between cycles).
+The tracking is the same to three digits — the point of the exercise, since the two differ only in where the model comes from. The parameter trajectories agree less closely (7 %) than they did with the tracking term alone, where they matched to 0.1 %: the prediction error term is the part that is sensitive to the round trip, because it depends on `q̈` and on a `Y` that is one cycle old and quantised to float32 on the wire. That is worth a sentence in the paper.
 
-The residual tracking error is the unmodelled joint friction: the FR3 URDF has 0.2 Nm of Coulomb friction per joint, and the per-joint error is very close to 0.2 Nm / k_p — 0.0005 rad on the shoulder joints, 0.05 rad on joint 7 where k_p is 4.4. Modelling friction (`reg_dl`, 14 more parameters) would remove it.
+The `update()` figures are wall-clock inside a loaded, non-real-time Gazebo process and vary by ~15 % between runs; they compare the two controllers on the same machine, they are not a real-time guarantee.
 
-## Open items on the generator
+The residual tracking error is the unmodelled joint friction: the FR3 URDF has 0.2 Nm of Coulomb friction per joint, and the per-joint error is very close to 0.2 Nm / k_p — 0.0005 rad on the shoulder joints, 0.05 rad on joint 7 where k_p is 4.4. Adaptation of the inertial parameters cannot remove it; modelling friction (`reg_dl`, 14 more parameters) would.
 
-Three things found while building this, all on the `thunder`/`franka_server` side:
+## Open item on the generator
 
-1. **`Y` has to be a function of `q̈`.** `get_Y()` and `get_Yr()` currently share the inputs `{q, dq, dqr, ddqr}`, so one server — which holds a single `(dqr, ddqr)` pair — cannot evaluate `Y_r` on the desired motion and `Y` on the actual one simultaneously. Until that is regenerated, keep `adaptation.gamma: 0.0` for the server controller: the prediction error term of eq. (2) would be computed on the wrong motion. The in-process controller is unaffected, it re-evaluates `get_Y()` with the reference set to the measured motion.
+One thing is still outstanding, and it is cosmetic for the control law: **`reg2dyn` returns NaN for a zero-mass block**, because it divides the first moments by the mass. With the shipped parameters both `base` and `EE` have zero mass, and the `EE` block is inside the 80 values that become `par_DYN`. The controller filters those out before publishing and warns once, so `Yr`, `Y` and `reg_G` — which depend on `par_REG`, never on `par_DYN` — are unaffected. The generated function should still guard the division.
 
-2. **`reg_G` should be published.** Both libfranka *and* `franka_ign_ros2_control` add their own gravity compensation to the commanded torque, so the command must be gravity-free in simulation and on hardware alike. Until `reg_G` is in the `topics` list, the launch files run a second server instance whose `dqr`/`ddqr` are never published — its `Yr` is then exactly `reg_G`. Pass `gravity_server:=false` after regenerating.
+The two blocking issues found while building this are **fixed** in the current generation: `Y` is now `Y(q, q̇, q̈)` rather than sharing its inputs with `Y_r`, so a single server evaluates both regressors correctly and `adaptation.gamma` can be non-zero; and `reg_G` is published, so the commanded torque can be made gravity-free. (Both libfranka and `franka_ign_ros2_control` add their own gravity compensation to the commanded torque, so this is needed in simulation and on hardware alike.)
 
-3. **`reg2dyn` returns NaN for a zero-mass block**, because it divides the first moments by the mass. With the shipped parameters both `base` and `EE` have zero mass, and the `EE` block is inside the 80 values that become `par_DYN`. The controller filters those out before publishing and warns once, but the generated function should guard the division.

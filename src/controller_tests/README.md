@@ -66,9 +66,9 @@ if `centre ± amplitude` leaves the joint range.
 the torques, π̂ and the loop timing), `/mact/trajectory` and `/joint_states`;
 plus the `/controller/*` traffic when the server is in the loop.
 
-`Yr` and `Y` are **not** recorded by default: they are 7×100 matrices at 1 kHz,
-about 5.6 MB/s, and recording them for the server run only would make the two
-runs unequal in I/O load. Add them to `SERVER_BAG_TOPICS` in
+`Yr`, `Y` and `reg_G` are **not** recorded by default: they are 7×100 matrices
+at 1 kHz, about 2.8 MB/s each, and recording them for the server run only would
+make the two runs unequal in I/O load. Add them to `SERVER_BAG_TOPICS` in
 `launch/mact_launch_utils.py` if you want to inspect them.
 
 Bags land in `bags/<environment>_<controller>_<timestamp>/` relative to the

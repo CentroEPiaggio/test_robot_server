@@ -65,13 +65,12 @@ bool MactLocalController::updateModel(const MotionSample & motion, ModelTerms & 
   terms.regressor_r = robot_.get_Yr();
   terms.has_regressor_r = true;
 
-  // Standard regressor on the actual motion: Y(q, dq, ddq). Setting the
-  // reference motion equal to the measured one is what makes get_Y() return
-  // the regressor of tau = Y * pi. Only needed when the prediction error term
-  // of eq. (2) is active, and it costs about as much as Y_r.
+  // Standard regressor on the actual motion: Y(q, dq, ddq). It takes the
+  // measured acceleration directly and shares no input with Y_r, so the two
+  // can be evaluated in the same pass. Only needed when the prediction error
+  // term of eq. (2) is active, and it costs about as much as Y_r.
   if (needsRegressor()) {
-    robot_.set_dqr(motion.dq);
-    robot_.set_ddqr(motion.ddq);
+    robot_.set_ddq(motion.ddq);
     terms.regressor = robot_.get_Y();
     terms.has_regressor = true;
   }

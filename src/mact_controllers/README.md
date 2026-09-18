@@ -61,12 +61,21 @@ Note that the simulator's compensation uses the URDF inertias, while `reg_G·π�
 uses the estimate, so what the joints actually see is `τ_model + (G_true − Ĝ)`
 — exactly the situation on the real robot.
 
+This matters for the update law now that `gamma` is non-zero. Eq. (2) compares
+the torque the robot *applied* with `Y π̂`, and the controller feeds it
+`τ_model`, i.e. the previous cycle's model torque. The torque actually applied
+is `τ_model + (G_true − Ĝ)`, so the prediction error is blind to the gravity
+model error by exactly that term. The alternative is the measured torque from
+the effort state interface, which captures it — the controller records it as
+`tau_meas` in every diagnostic sample, so the two can be compared offline
+before deciding to switch.
+
 **The model term and the gravity subtraction are coupled.** If
-`gravity.subtract` is set but no gravity regressor is available — which is the
-case for the server-based controller until `reg_G` is added to the server's
-published topics — the controller drops the model term and commands the PD
-part alone, rather than commanding gravity twice. This is logged and shows up
-as `model_valid = false` in the diagnostics.
+`gravity.subtract` is set but no gravity regressor is available — the server
+has not sent one yet, or its samples went stale — the controller drops the
+model term and commands the PD part alone, rather than commanding gravity
+twice. This is logged and shows up as `model_valid = false` in the
+diagnostics.
 
 ## Degraded operation
 
@@ -78,46 +87,36 @@ part alone, and the estimate is frozen until fresh data arrives. This is logged
 `model_age_ms` and `degraded_cycles`, so a degraded interval is visible in the
 bag rather than silently changing the control law.
 
-## Server-side prerequisites
+## What the server has to expose
 
 The server-based controller is written against the interface declared in
-`franka_server/config/franka_conf.yaml`, and two things have to be regenerated
-before it is fully usable:
+`franka_server/config/franka_conf.yaml`, which now reads
 
-1. **`Y` must be a function of the actual acceleration.** The generated
-   `get_Y()` and `get_Yr()` share their inputs `{q, dq, dqr, ddqr}`, so a
-   single server instance — which holds one `(dqr, ddqr)` pair — cannot
-   evaluate `Y_r` on the desired motion and `Y` on the actual one at the same
-   time. Until `Y(q, q̇, q̈)` is generated, keep `adaptation.gamma: 0.0` for the
-   server controller: the prediction error term of eq. (2) would otherwise be
-   computed on the wrong motion. The in-process controller has no such
-   limitation — it simply re-evaluates `get_Y()` with the reference motion set
-   equal to the measured one.
+```yaml
+inputs:  q, dq, ddq, dqr, ddqr, par_REG, par_DYN
+topics:  [Yr, Y, reg_G, reg2dyn]
+services: [par_KIN, par_REG, par_DYN]
+```
 
-2. **`reg_G` must be published** (`topics: [Yr, Y, reg2dyn, reg_G]`) before
-   `gravity.subtract` can be used — and it is needed in simulation as well, see
-   above.
+Two properties of that interface are what make the controller possible, and
+both arrived with the regeneration:
 
-   Until then there is an exact workaround that needs no regeneration, and the
-   launch files use it by default (`gravity_server:=true`). Since
+1. **`Y` is a function of the actual acceleration**, `Y(q, q̇, q̈)`, and no
+   longer shares its inputs with `Y_r(q, q̇, q̇ᵣ, q̈ᵣ)`. A single server can
+   therefore evaluate the Slotine-Li regressor on the desired motion and the
+   standard regressor on the actual one in the same cycle, which is exactly
+   what eq. (2) needs. `adaptation.gamma` may now be non-zero for the
+   server-based controller as well; it is 1.0 by default.
 
-   ```
-   Yr = reg_M(ddqr) + reg_C(q̇, q̇r) + reg_G
-   ```
+2. **`reg_G` is published**, so the command can be made gravity-free on both
+   sides (see above).
 
-   is linear in the reference motion, a **second `franka_server_node` whose
-   `dqr`/`ddqr` inputs are remapped to topics nobody publishes** keeps them at
-   the zeros of the generated constructor, and its `Yr` output is exactly
-   `reg_G` — verified bit-for-bit against `get_reg_G()`. Its other outputs and
-   all of its services are remapped aside so they do not collide with the real
-   server. Pass `gravity_server:=false` once the server has been regenerated.
-
-A third, independent issue: **`reg2dyn` returns NaN for any zero-mass block**,
-because it divides the first moments by the mass. With the shipped parameters
-the `base` and `EE` blocks have zero mass, and the `EE` block falls inside the
-80 values that make up `par_DYN`. The controller filters those NaNs out before
-publishing `par_DYN` (and warns once), but the generator should guard the
-division.
+One issue remains open on the generator: **`reg2dyn` returns NaN for any
+zero-mass block**, because it divides the first moments by the mass. With the
+shipped parameters the `base` and `EE` blocks have zero mass, and the `EE`
+block falls inside the 80 values that make up `par_DYN`. The controller filters
+those NaNs out before publishing `par_DYN` (and warns once), but the generated
+function should guard the division.
 
 ## Parameter feedback
 
@@ -141,34 +140,36 @@ Standalone microbenchmark, `-O2`, i9-12900H, 20 000 back-to-back calls:
 
 | call | time |
 |---|---|
-| `get_Yr()` | 37 µs |
-| `get_Y()` | 36 µs |
-| `get_reg_G()` | 0.45 µs |
-| `get_M()` | 0.93 µs |
+| `get_Yr()` | 37.9 µs |
+| `get_Y()` | 38.4 µs |
+| `get_reg_G()` | 0.46 µs |
+| `get_M()` | 0.89 µs |
 | `get_C()` | 7.5 µs |
 
 **Do not quote those numbers for a control loop.** Measured inside the 1 kHz
-Gazebo loop, `update()` takes about **186 µs** for the in-process controller
-against **17 µs** for the server-based one — five times what the benchmark
-suggests, in the same process and the same machine.
+Gazebo loop with `gamma = 1` (so both regressors are needed every cycle),
+`update()` takes about **254 µs** for the in-process controller against
+**16 µs** for the server-based one — in the same process and on the same
+machine.
 
-The reason is code size, not arithmetic. `get_Yr()` is a 9-byte thunk into
-`franka_gen_f60`, which is **2.12 MiB of straight-line CasADi code**. Called
-back-to-back it stays resident in L2/L3 and runs at benchmark speed; called
-once per millisecond with a whole simulator running in between, it is re-fetched
-from L3 or DRAM every single cycle. The `.so` is 13 MB of text in total.
+The reason is code size, not arithmetic. `get_Yr()` and `get_Y()` are 9-byte
+thunks into CasADi blobs of **2.12 MiB and 2.13 MiB of straight-line code**
+(`reg_G` is only 15 KiB; the `.so` is 15.4 MB of text in total). Called
+back-to-back they stay resident in L2/L3 and run at benchmark speed; called
+once per millisecond with a whole simulator running in between, 4.25 MiB of
+instructions are re-fetched from L3 or DRAM every single cycle.
 
 This cuts both ways for the architecture discussion in the abstract:
 
 * the in-process option is more expensive in a real loop than a microbenchmark
   implies, and the gap grows with the size of the generated model;
-* the server option moves that 2 MiB working set into another process, where it
-  *is* executed back-to-back and where its cost overlaps with the control loop
+* the server option moves that working set into another process, where it *is*
+  executed back-to-back and where its cost overlaps with the control loop
   instead of adding to it; what the controller pays instead is serialisation
   and one round trip of staleness.
 
-Measured staleness of the served regressor in Gazebo at 1 kHz: **mean 0.83 ms,
-max 3.0 ms**, which is the `model_age_ms` field of the diagnostics.
+Measured staleness of the served regressors in Gazebo at 1 kHz: **mean 0.78 ms,
+max 2.0 ms**, reported per sample as `model_age_ms`.
 
 ## Configuration
 

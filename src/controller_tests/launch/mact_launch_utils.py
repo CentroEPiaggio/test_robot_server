@@ -133,55 +133,6 @@ def robot_server_node(use_sim_time):
     )
 
 
-def gravity_server_node(use_sim_time):
-    """
-    A second Robot Server instance that serves reg_G, without regenerating.
-
-    The server-based controller needs the gravity regressor to make its command
-    gravity-free, but the generated server publishes only [Yr, Y, reg2dyn].
-    It can be had anyway, because
-
-        Yr = reg_M(ddqr) + reg_C(dq, dqr) + reg_G
-
-    is linear in the reference motion: with dqr = ddqr = 0 the first two terms
-    vanish and Yr *is* reg_G (verified exactly, to the last bit, against
-    get_reg_G()).
-
-    So this instance is an ordinary franka_server_node whose dqr and ddqr
-    inputs are remapped to topics nobody ever publishes. They therefore keep
-    the zeros the generated constructor gives them, and its Yr output —
-    remapped to franka_server/reg_G — is the gravity regressor evaluated on the
-    q the controller publishes. Its other outputs and all of its services are
-    remapped out of the way so that they do not collide with the real server.
-
-    This is a bridge, not a design: once franka_conf.yaml lists reg_G among its
-    'topics' and the server is regenerated, launch with gravity_server:=false
-    and delete this.
-    """
-    return Node(
-        package='franka_server',
-        executable='franka_server_node',
-        name='gravity_server',
-        output='screen',
-        parameters=[{'use_sim_time': use_sim_time}],
-        remappings=[
-            # Never published => dqr and ddqr stay at zero => Yr == reg_G.
-            ('/controller/dqr', '/gravity_server/unused_dqr'),
-            ('/controller/ddqr', '/gravity_server/unused_ddqr'),
-            # The one output we actually want.
-            ('franka_server/Yr', 'franka_server/reg_G'),
-            # Everything else out of the way of the real server.
-            ('franka_server/Y', 'gravity_server/unused_Y'),
-            ('franka_server/reg2dyn', 'gravity_server/unused_reg2dyn'),
-            ('franka_server/get_par_KIN', 'gravity_server/get_par_KIN'),
-            ('franka_server/get_par_REG', 'gravity_server/get_par_REG'),
-            ('franka_server/set_par_REG', 'gravity_server/set_par_REG'),
-            ('franka_server/get_par_DYN', 'gravity_server/get_par_DYN'),
-            ('franka_server/set_par_DYN', 'gravity_server/set_par_DYN'),
-        ],
-    )
-
-
 def trajectory_node(arm_id, use_sim_time, trajectory_config=None):
     """The Lissajous reference generator, identical for both controllers."""
     if trajectory_config is None:

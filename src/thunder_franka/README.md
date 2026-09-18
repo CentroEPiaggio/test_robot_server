@@ -9,8 +9,9 @@ Everything under `src/` and `include/thunder_franka/` is **generated** by
 thunder gen franka_conf.yaml
 ```
 
-and is copied here verbatim from `franka_generatedFiles/`. Do not edit it:
-change `config/franka_conf.yaml` and regenerate.
+and copied here verbatim, together with the identical copy that
+`franka_server` carries. Do not edit it: change `config/franka_conf.yaml` and
+regenerate, then refresh both packages.
 
 The package exists so that the model can be *linked* into a node — the
 "in-process" alternative to the Robot Server discussed in the extended
@@ -35,6 +36,18 @@ robot.set_ddqr(ddq_d);
 const Eigen::Matrix<double, 7, 100> Yr = robot.get_Yr();
 ```
 
-Note that `get_Y()` and `get_Yr()` share the same inputs `{q, dq, dqr, ddqr}`:
-to obtain the *standard* regressor evaluated on the actual motion,
-`Y(q, q̇, q̈)`, set `dqr = dq` and `ddqr = ddq` before calling `get_Y()`.
+The two regressors take different inputs, so both can be evaluated in one
+pass over the state:
+
+| | inputs | meaning |
+|---|---|---|
+| `get_Yr()` | `q, dq, dqr, ddqr` | Slotine-Li regressor on the reference motion |
+| `get_Y()` | `q, dq, ddq` | standard regressor on the actual motion, `τ = Y·π` |
+| `get_reg_G()` | `q` | gravity part alone |
+
+`get_reg2dyn()` converts `par_REG` (100 values, 10 blocks of 10) into the
+dynamic parametrisation. It divides the first moments by the mass, so a
+**zero-mass block comes back as NaN** — with the shipped parameters both
+`base` and `EE` are zero-mass, and the `EE` block falls inside the trailing 80
+values that make up `par_DYN`. Filter them before feeding the result to
+`set_par_DYN()`.

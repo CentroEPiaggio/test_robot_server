@@ -57,16 +57,17 @@
       enabled: true
 
       # Weight of the prediction error term gamma * Y^T * R_t * (tau - Y*pi_hat)
-      # of eq. (2).
+      # of eq. (2). Set it to 0.0 to run the tracking term alone, which also
+      # saves evaluating (or subscribing to) Y.
       #
-      # NOTE: keep this at 0.0 for the server-based controller until the server
-      # is regenerated with Y evaluated on the ACTUAL motion, Y(q, dq, ddq).
-      # The generated get_Y() currently shares its inputs with get_Yr(), so a
-      # single server instance evaluates both on the desired motion and the
-      # prediction error would be meaningless. The in-process controller has no
-      # such limitation: it re-evaluates get_Y() with the reference motion set
-      # to the measured one.
-      gamma: 0.0
+      # The term compares the torque the robot applied with the one the model
+      # predicts for the measured motion, so it is only as good as ddq, which
+      # is differentiated from the joint velocity and is by far the noisiest
+      # signal in the loop; 'filters.ddq_cutoff_hz' matters more here than
+      # anywhere else. Note also that with friction left out of the model the
+      # residual (tau - Y*pi_hat) contains the joint friction, so the estimates
+      # absorb part of it.
+      gamma: 1.0
 
       # Diagonal of R_t, one entry per joint.
       R_t: [1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0]
@@ -125,10 +126,10 @@
       #
       # Commanding gravity here as well would therefore apply it twice.
       #
-      # Needs reg_G: the in-process controller evaluates it directly; the
-      # server-based one needs the server to publish it, so add reg_G to the
-      # 'topics' list of franka_conf.yaml and regenerate. Until then the
-      # server-based controller runs the PD term alone (see the README).
+      # Needs reg_G, which the in-process controller evaluates directly and the
+      # server publishes on franka_server/reg_G. If it is ever unavailable the
+      # controller drops the model term and commands the PD part alone, rather
+      # than commanding gravity twice.
       subtract: true
 
     # ---------------------------------------------------------- diagnostics --

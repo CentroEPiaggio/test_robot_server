@@ -21,17 +21,14 @@ namespace mact_controllers {
  * diagnostics — is inherited from MactControllerBase and is therefore bit-for-
  * bit the same as in MactServerController.
  *
- * Note how Y_r and Y are obtained from the same generated function family.
- * Both depend on {q, dq, dqr, ddqr}; the difference is which motion is written
- * into the reference slots before the call:
+ * The two regressors of eq. (2) are taken from the generated library directly:
  *
- *   - Y_r(q, dq, dq_d, ddq_d): reference = the *desired* motion (Slotine-Li);
- *   - Y  (q, dq, dq,   ddq  ): reference = the *actual* motion, which turns the
- *                              standard regressor into tau = Y * pi.
+ *   - Y_r(q, dq, dq_d, ddq_d), the Slotine-Li regressor on the desired motion,
+ *     with the reference slots dqr/ddqr carrying q_d's derivatives;
+ *   - Y(q, dq, ddq), the standard regressor on the actual motion, which takes
+ *     the measured acceleration as its own input.
  *
- * A single linked instance can do both because it is re-evaluated on demand.
- * A server holding one (dqr, ddqr) pair cannot, which is exactly why the
- * server-side Y has to be generated as a function of ddq.
+ * They share no input, so both can be evaluated in one pass over the state.
  */
 class MactLocalController : public MactControllerBase
 {
