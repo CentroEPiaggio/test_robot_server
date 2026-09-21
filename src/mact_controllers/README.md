@@ -93,6 +93,26 @@ the PD term alone there is no gravity in the command to remove, and taking it
 out would make the arm drop. The value used each cycle is recorded as
 `tau_gravity` in the diagnostics.
 
+## When the estimate starts moving
+
+Adaptation is held until the motion starts, and from then on it runs for the
+rest of the activation — including if the reference later goes stale. There is
+nothing wrong with estimating before a trajectory is being tracked; the reason
+for the latch is purely that a run has to be reproducible. The controller is
+activated a second or two before the generator starts, and that interval is
+not the same from one launch to the next; since the prediction error term of
+eq. (2) is active even with zero tracking error, without the latch each run
+would begin with an estimate that had already drifted by an arbitrary amount —
+measured at 0.30 against 0.45 in two otherwise identical runs.
+
+"Motion starts" means the reference's `time_from_start` becomes non-zero, or
+failing that its velocity does. The generator holds the start pose with a zero
+clock while it waits for this controller to be connected, and that hold must
+not count as tracking.
+
+With the latch the two controllers start from the same π̂ and their parameter
+trajectories agree to 0.5 % instead of 18 %.
+
 ## How τ and Y line up in the update law
 
 Eq. (2) compares the torque the robot applied with `Y π̂`, and the two should

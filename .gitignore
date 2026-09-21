@@ -1,5 +1,6 @@
 build/
 install/
 log/
+bags/
 .devcontainer/.env
 .devcontainer/commandhistory/.bash_history

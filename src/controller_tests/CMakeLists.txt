@@ -11,6 +11,7 @@ endif()
 
 find_package(ament_cmake REQUIRED)
 find_package(rclcpp REQUIRED)
+find_package(mact_msgs REQUIRED)
 find_package(sensor_msgs REQUIRED)
 find_package(trajectory_msgs REQUIRED)
 find_package(Eigen3 REQUIRED)
@@ -25,14 +26,19 @@ target_link_libraries(lissajous_trajectory PUBLIC Eigen3::Eigen)
 
 add_executable(trajectory_publisher_node src/trajectory_publisher_node.cpp)
 target_link_libraries(trajectory_publisher_node lissajous_trajectory)
-ament_target_dependencies(trajectory_publisher_node rclcpp sensor_msgs trajectory_msgs)
+ament_target_dependencies(trajectory_publisher_node
+  rclcpp mact_msgs sensor_msgs trajectory_msgs)
 
 install(TARGETS lissajous_trajectory
   ARCHIVE DESTINATION lib LIBRARY DESTINATION lib RUNTIME DESTINATION bin)
 install(TARGETS trajectory_publisher_node DESTINATION lib/${PROJECT_NAME})
 install(DIRECTORY include/ DESTINATION include)
 install(DIRECTORY config launch DESTINATION share/${PROJECT_NAME})
-install(PROGRAMS scripts/analyse_run.py DESTINATION lib/${PROJECT_NAME})
+install(PROGRAMS
+  scripts/analyse_run.py
+  scripts/plot_abstract_figure.py
+  scripts/thunder_ctypes.py
+  DESTINATION lib/${PROJECT_NAME})
 
 if(BUILD_TESTING)
   find_package(ament_cmake_gtest REQUIRED)

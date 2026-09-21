@@ -68,7 +68,7 @@ def _write_override_file(parameters):
     return handle.name
 
 
-def controller_parameter_files(controller, arm_id, use_sim_time):
+def controller_parameter_files(controller, arm_id, use_sim_time, initial_scale=None):
     """Return the parameter files the controller is spawned with, in order."""
     share = get_package_share_directory('mact_controllers')
     files = [
@@ -83,15 +83,24 @@ def controller_parameter_files(controller, arm_id, use_sim_time):
     # robot uses its own model. Selecting the matching one makes the
     # cancellation exact on both sides; it is the same choice for both
     # controllers, so the comparison stays fair.
-    files.append(_write_override_file({
+    overrides = {
         'arm_id': arm_id,
         'use_sim_time': use_sim_time,
         'gravity.source': 'urdf_kdl' if use_sim_time else 'franka_model',
-    }))
+    }
+    # Starting the estimate away from the nominal value is how the parameter
+    # convergence is made visible: with pi_hat(0) already nominal there is
+    # little for the adaptation to do and the torque residual just sits on the
+    # unmodelled-friction floor.
+    if initial_scale is not None:
+        overrides['adaptation.initial_scale'] = float(initial_scale)
+    files.append(_write_override_file(overrides))
     return files
 
 
-def controller_spawner(controller, arm_id, use_sim_time, controller_manager='/controller_manager'):
+def controller_spawner(
+        controller, arm_id, use_sim_time, controller_manager='/controller_manager',
+        initial_scale=None):
     """Spawn the MACT controller under test."""
     return Node(
         package='controller_manager',
@@ -105,7 +114,8 @@ def controller_spawner(controller, arm_id, use_sim_time, controller_manager='/co
             '--controller-manager-timeout', '60',
         ] + sum(
             [['--param-file', path]
-             for path in controller_parameter_files(controller, arm_id, use_sim_time)],
+             for path in controller_parameter_files(
+                 controller, arm_id, use_sim_time, initial_scale)],
             [],
         ),
     )

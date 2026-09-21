@@ -31,22 +31,19 @@ gravity subtracted from the exact source the simulator applies (`urdf_kdl`):
 
 | | in-process | server |
 |---|---|---|
-| tracking error, rms | 0.04350 rad | 0.04398 rad |
-| tracking error, max | 0.06344 rad | 0.06249 rad |
-| ‖π̂(T) − π̂(0)‖ | 0.110 | 0.090 |
-| `update()` mean | 306 µs | 15 µs |
-| `update()` worst | 4217 µs | 832 µs |
+| tracking error, rms | 0.04396 rad | 0.04511 rad |
+| tracking error, max | 0.06341 rad | 0.06246 rad |
+| ‖π̂(T) − π̂(0)‖ | 0.0946 | 0.0951 |
+| `update()` mean | 340 µs | 27 µs |
+| `update()` worst | 3716 µs | 672 µs |
 | model staleness | 0 | mean 0.84 ms, max 3.0 ms |
 | degraded cycles | 0 | 0 |
 
-Tracking is the same to three digits — the point of the exercise, since the two
-differ only in where the model comes from. The parameter trajectories agree
-less closely, and that gap is itself the measurement: with `gamma = 0` (the
-tracking term alone) they match to 0.1 %; with the prediction error term active
-they differ by ~18 %, because that term depends on `q̈` and on a `Y` that is one
-control period behind the torque it is paired with, and quantised to float32 on
-the wire. See the τ/Y alignment section in
-[`src/mact_controllers/README.md`](src/mact_controllers/README.md).
+Tracking agrees to three digits and the parameter trajectories to 0.5 %, which
+is the point of the exercise: the two differ only in where the model comes
+from. Getting the parameter trajectories to agree required holding π̂ until the
+first reference arrives — without that, each run adapts for a different length
+of time before the motion starts and the estimates are already apart at t = 0.
 
 The `update()` figures are wall-clock inside a loaded, non-real-time Gazebo
 process and vary by ~15 % between runs; they compare the two controllers on the
@@ -57,6 +54,37 @@ The residual tracking error is unmodelled joint friction: the FR3 URDF has
 0.2 Nm / k_p — 0.0008 rad on the shoulder joints, 0.06 rad on joint 7 where
 k_p is 4.4. Adaptation of the inertial parameters cannot remove it; modelling
 friction (`reg_dl`, 14 more parameters) would.
+
+## Figures
+
+```bash
+ros2 launch controller_tests gazebo_experiment.launch.py controller:=server initial_scale:=0.6
+ros2 launch controller_tests gazebo_experiment.launch.py controller:=local  initial_scale:=0.6
+ros2 run controller_tests plot_abstract_figure.py \
+    --server bags/gazebo_server_... --local bags/gazebo_local_... --output fig2
+```
+
+produces the two data panels of Fig. 2. The parameter panel plots the torque
+prediction residual `τ_meas − Y·π̂` rather than entries of π̂, because the
+regressor has a null space and many parameter vectors reproduce the same
+dynamics. Starting from a deliberately wrong estimate (`initial_scale:=0.6`)
+is what makes the convergence visible: the residual then falls from about
+8 Nm to 0.6 Nm over the run, with the two controllers indistinguishable
+(rms 1.833 against 1.837 Nm). With π̂(0) at the nominal value there is little
+for the adaptation to do and the residual just sits on the
+unmodelled-friction floor of ~0.2 Nm.
+
+The time axis is the trajectory generator's own clock, forwarded by the
+controller into every recorded sample, so nothing has to be inferred from the
+data: 0 is the start of the approach and 5 s the start of the Lissajous. The
+generator holds the start pose until the controller confirms it is receiving,
+which is what keeps that clock meaningful — publishing before discovery
+completes loses part of the approach, by 2.3 s in one run and 0.3 s in another
+of the same launch file, and leaves two runs at different points of the
+parameter convergence.
+
+See [`src/controller_tests/README.md`](src/controller_tests/README.md) for the
+details, including why the residual must use the *measured* torque.
 
 ## Open item on the generator
 

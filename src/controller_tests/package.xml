@@ -15,13 +15,13 @@
 
   <depend>eigen</depend>
   <depend>rclcpp</depend>
+  <depend>mact_msgs</depend>
   <depend>sensor_msgs</depend>
   <depend>trajectory_msgs</depend>
 
   <exec_depend>controller_manager</exec_depend>
   <exec_depend>franka_server</exec_depend>
   <exec_depend>mact_controllers</exec_depend>
-  <exec_depend>mact_msgs</exec_depend>
   <exec_depend>python3-numpy</exec_depend>
   <exec_depend>rosbag2_py</exec_depend>
   <exec_depend>ros2bag</exec_depend>

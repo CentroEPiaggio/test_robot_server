@@ -70,7 +70,11 @@ def experiment_chain(context: LaunchContext):
         # configuring.
         actions.append(robot_server_node(use_sim_time=False))
 
-    mact = controller_spawner(controller, arm_id, use_sim_time=False)
+    initial_scale = context.perform_substitution(
+        LaunchConfiguration('initial_scale'))
+    mact = controller_spawner(
+        controller, arm_id, use_sim_time=False,
+        initial_scale=float(initial_scale) if initial_scale else None)
 
     after_controller = []
     if record:
@@ -114,6 +118,12 @@ def generate_launch_description():
             description='Run against the mock hardware instead of the robot.'),
         DeclareLaunchArgument(
             'record', default_value='true', description='Record a bag of the run.'),
+        DeclareLaunchArgument(
+            'initial_scale', default_value='',
+            description='Scale applied to the nominal par_REG to obtain pi_hat(0). Empty '
+                        'keeps the value in mact_common.yaml. Use e.g. 0.6 to start from a '
+                        'deliberately wrong estimate, which is what makes the parameter '
+                        'convergence visible in the torque residual.'),
         DeclareLaunchArgument(
             'use_rviz', default_value='false', description='Also start RViz.'),
 

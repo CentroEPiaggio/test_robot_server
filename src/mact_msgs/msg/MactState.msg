@@ -54,3 +54,11 @@ bool    model_valid       # a usable regressor was available this cycle
 float64 model_age_ms      # age of the newest Yr; always 0.0 in-process
 uint32  degraded_cycles   # cycles spent in PD-only fallback since activation
 bool    trajectory_valid  # a fresh desired trajectory was available
+
+# Phase of the motion, as the trajectory generator itself reports it in
+# JointTrajectoryPoint.time_from_start: 0 at the start of the approach and
+# counting up from there. This is what analysis should use as its time axis --
+# neither the recording start nor the arrival of the first reference is a
+# reliable origin, because both depend on when the recorder opened its file and
+# on how long discovery took. Zero until a reference has been received.
+float64 trajectory_time

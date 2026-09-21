@@ -60,6 +60,26 @@ something that merely fits the executed motion.
 `position_min`/`position_max` are checked at start-up: the node refuses to run
 if `centre ± amplitude` leaves the joint range.
 
+## Why the generator waits before it starts
+
+The node captures the start pose, then **holds it on the reference topic**
+until the controller reports (on `/mact/state`) that it is receiving, and only
+then starts the motion clock.
+
+Without that handshake the generator publishes into the void while DDS
+discovery completes, and whatever part of the approach goes out in that window
+never reaches the controller. Measured across two runs of the same launch
+file, the gap was **2.3 s in one and 0.3 s in the other**. The damage is not
+only a step in `q_d` when the controller finally connects: by the time the
+Lissajous begins, two runs have adapted for different lengths of time, so they
+sit at different points of the parameter convergence and no choice of time
+origin can make them comparable again.
+
+`wait_for_controller: false` disables it, `handshake_timeout_s` bounds it (the
+run then starts anyway, with a warning). While the pose is held the motion
+clock reads exactly 0, which is how the controller knows not to start adapting
+yet and how the analysis tells the hold apart from the approach.
+
 ## Recorded topics
 
 `/mact/state` (the whole control cycle: q, dq, ddq, the reference, the error,
@@ -73,6 +93,74 @@ make the two runs unequal in I/O load. Add them to `SERVER_BAG_TOPICS` in
 
 Bags land in `bags/<environment>_<controller>_<timestamp>/` relative to the
 directory the launch was started from.
+
+## Figures for the paper
+
+```bash
+ros2 run controller_tests plot_abstract_figure.py \
+    --server bags/gazebo_server_... --local bags/gazebo_local_... --output fig2
+```
+
+writes `fig2.pdf` with the two data panels of Fig. 2, plus `fig2_error.pdf`,
+`fig2_residual_y.pdf` and `fig2_residual_yr.pdf` for including them
+separately. The server run is solid in MATLAB blue (`#0072BD`), the in-process
+run dotted; `--local-colour '#0072BD'` makes the figure single-colour.
+
+The time axis is the trajectory generator's own clock, recorded with every
+sample, so two runs line up exactly with nothing detected from the data: 0 is
+the start of the approach, 5 s the start of the Lissajous.
+
+Useful arguments: `--t0/--t1` for the window and `--rezero` to put t = 0 at
+`--t0` (so `--t0 5 --t1 35 --rezero` plots the Lissajous alone), `--png`,
+`--width/--height`.
+
+### The parameter metric
+
+Plotting entries of π̂ says little: the regressor has a null space, so many
+parameter vectors reproduce the same dynamics. What the figure shows instead is
+how well the estimate explains the torque the robot actually produced,
+
+```
+r_Y (t) = τ_meas − Y(q, q̇, q̈)·π̂
+r_Yr(t) = τ_meas − Y_r(q, q̇, q̇_d, q̈_d)·π̂
+```
+
+with both regressors re-evaluated from the recorded state through the same
+generated library the controller ran (see `thunder_ctypes.py` — the CasADi
+entry points are called directly with `ctypes`, so no bindings or build step
+are needed). `r_Yr` replaces the measured acceleration with the reference one
+and is exact only in the limit of perfect tracking.
+
+Two things to know before reading the plot:
+
+* **It must use the measured torque.** The control law is
+  `τ_model = Y_r·π̂ + PD`, so `τ_model − Y_r·π̂` is identically the PD term and
+  says nothing about the estimate. `--torque model` exists only to demonstrate
+  that; the default is `measured`.
+
+* **The residual has a floor.** Joint friction is not in the model — the FR3
+  URDF has 0.2 Nm of Coulomb friction per joint — so `r` cannot decay below
+  roughly that, no matter how good π̂ becomes. In these runs it settles around
+  0.2–0.25 Nm.
+
+Adaptation is held until the motion actually starts, so every run begins
+adapting at the same point regardless of how long the controller happened to
+be active beforehand.
+
+To make the convergence visible at all, start the estimate away from the
+nominal parameters, otherwise there is nothing for the adaptation to do:
+
+```bash
+ros2 launch controller_tests gazebo_experiment.launch.py \
+    controller:=server initial_scale:=0.6
+```
+
+The script prints a self-check, `max |τ_model − (Y_r·π̂ + PD)|` over the
+in-process run. It should be of the order of one adaptation step
+(10⁻⁶–10⁻³ Nm) — the recorded π̂ is the value *after* that cycle's update,
+while `τ_model` was computed with the previous one. Whole newton-metres would
+mean the library, the column ordering or the parameter file is wrong, and the
+residual curves could not be trusted.
 
 ## Analysing a run
 

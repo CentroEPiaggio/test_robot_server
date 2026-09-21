@@ -163,12 +163,16 @@ private:
   Eigen::VectorXd initial_estimate_;
   int num_parameters_{100};
   bool adaptation_enabled_{true};
+  /// Latched by the first reference; the estimate is held until then.
+  bool adaptation_started_{false};
 
   // ----------------------------------------------------------- references --
   realtime_tools::RealtimeBuffer<TrajectorySample> trajectory_buffer_;
   rclcpp::Subscription<trajectory_msgs::msg::JointTrajectoryPoint>::SharedPtr
     trajectory_subscription_;
   double trajectory_timeout_s_{0.0};
+  /// The generator's motion clock, as last reported by the reference.
+  double trajectory_time_{0.0};
 
   // ------------------------------------------------------------- measured --
   Vector7d q_{Vector7d::Zero()};

@@ -298,6 +298,8 @@ CallbackReturn MactControllerBase::on_activate(const rclcpp_lifecycle::State & /
   terms_.invalidate();
   model_valid_ = false;
 
+  adaptation_started_ = false;
+  trajectory_time_ = 0.0;
   degraded_cycles_ = 0;
   cycles_in_window_ = 0;
   duration_sum_us_ = 0.0;
@@ -347,6 +349,7 @@ controller_interface::return_type MactControllerBase::update(
     motion.q_d = reference.q_d;
     motion.dq_d = reference.dq_d;
     motion.ddq_d = reference.ddq_d;
+    trajectory_time_ = reference.time_from_start;
     q_hold_ = reference.q_d;
   } else {
     // No reference, or the generator stalled: hold the last commanded pose at
@@ -409,7 +412,23 @@ controller_interface::return_type MactControllerBase::update(
   // ------------------------------------------------------------ adaptation --
   // Uses the torque applied in the *previous* cycle, which is the one the
   // prediction error of eq. (2) refers to.
-  if (adaptation_enabled_ && model_valid_) {
+  //
+  // Adaptation starts with the first reference and then stays on for the rest
+  // of the activation, including if the reference later goes stale. There is
+  // nothing wrong with estimating before a trajectory is being tracked; it is
+  // simply that the controller is activated some time before the generator
+  // starts publishing, and that interval is not the same from one launch to
+  // the next, so a run would begin with an estimate that has already drifted
+  // by an arbitrary amount.
+  // Latch on the motion actually starting, not merely on a reference being
+  // present: the generator holds the start pose while it waits for this
+  // controller to be connected, and that wait is not the same length in every
+  // run. time_from_start is zero throughout that hold; the velocity test
+  // covers a generator that does not fill it in.
+  adaptation_started_ = adaptation_started_ ||
+    (reference_fresh &&
+    (reference.time_from_start > 0.0 || reference.dq_d.cwiseAbs().maxCoeff() > 0.0));
+  if (adaptation_enabled_ && adaptation_started_ && model_valid_) {
     adaptation_.update(
       terms_.regressor_r, error_rate, terms_.regressor, tau_model_previous_,
       terms_.has_regressor, dt);
@@ -564,8 +583,10 @@ void MactControllerBase::trajectoryCallback(
     sample.ddq_d(joint) = message->accelerations[joint];
   }
   // JointTrajectoryPoint has no header, so the arrival time is what the
-  // staleness check has to work with.
+  // staleness check has to work with. time_from_start, on the other hand, is
+  // the generator's own motion clock and is exactly what analysis needs.
   sample.stamp = get_node()->now();
+  sample.time_from_start = rclcpp::Duration(message->time_from_start).seconds();
   sample.valid = true;
 
   trajectory_buffer_.writeFromNonRT(sample);
@@ -605,6 +626,7 @@ void MactControllerBase::publishDiagnostics(const rclcpp::Time & time, const Mot
     message.model_age_ms = terms_.age_ms;
     message.degraded_cycles = degraded_cycles_;
     message.trajectory_valid = trajectory_buffer_.readFromRT()->valid;
+    message.trajectory_time = trajectory_time_;
 
     state_publisher_->unlockAndPublish();
   }

@@ -27,6 +27,8 @@ struct TrajectorySample
   Vector7d dq_d{Vector7d::Zero()};
   Vector7d ddq_d{Vector7d::Zero()};
   rclcpp::Time stamp{0, 0, RCL_ROS_TIME};
+  /// The generator's own motion clock, from time_from_start [s].
+  double time_from_start{0.0};
   bool valid{false};
 };
 
