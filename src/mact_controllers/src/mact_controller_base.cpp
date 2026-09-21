@@ -6,6 +6,7 @@
 #include <algorithm>
 #include <chrono>
 #include <limits>
+#include <array>
 
 namespace mact_controllers {
 
@@ -49,6 +50,16 @@ MactControllerBase::state_interface_configuration() const
     configuration.names.push_back(joint + "/velocity");
     configuration.names.push_back(joint + "/effort");
   }
+  // The robot's own model is exposed as two extra state interfaces by
+  // franka_hardware. They are claimed only when the gravity actually comes
+  // from there, so that the controller still runs in Gazebo, where they do not
+  // exist. readState() indexes the joint interfaces from the front, so
+  // appending these at the end changes nothing else.
+  if (franka_robot_model_) {
+    for (const auto & name : franka_robot_model_->get_state_interface_names()) {
+      configuration.names.push_back(name);
+    }
+  }
   return configuration;
 }
 
@@ -83,7 +94,14 @@ CallbackReturn MactControllerBase::on_init()
     auto_declare<double>("safety.max_tracking_error", 0.5);
     auto_declare<double>("safety.trajectory_timeout_ms", 20.0);
 
-    auto_declare<bool>("gravity.subtract", false);
+    // Where the gravity torque removed from the command comes from:
+    // none | estimate | urdf_kdl | franka_model.
+    auto_declare<std::string>("gravity.source", "estimate");
+    auto_declare<std::vector<double>>("gravity.vector", {0.0, 0.0, -9.8});
+    auto_declare<std::string>("gravity.description_node", "robot_state_publisher");
+    auto_declare<std::string>("gravity.chain_root", "");
+    auto_declare<std::string>("gravity.chain_tip", "");
+    auto_declare<double>("gravity.description_timeout_s", 10.0);
 
     auto_declare<int>("diagnostics.publish_every_n_cycles", 10);
   } catch (const std::exception & exception) {
@@ -167,7 +185,48 @@ CallbackReturn MactControllerBase::on_configure(const rclcpp_lifecycle::State & 
   terms_.resize(num_parameters_);
   initial_estimate_.setZero(num_parameters_);
 
-  subtract_gravity_ = get_node()->get_parameter("gravity.subtract").as_bool();
+  // ------------------------------------------------------------- gravity --
+  const auto gravity_name = get_node()->get_parameter("gravity.source").as_string();
+  if (!gravitySourceFromString(gravity_name, gravity_source_)) {
+    RCLCPP_FATAL(
+      logger,
+      "'gravity.source' is '%s'; expected one of none, estimate, urdf_kdl, franka_model",
+      gravity_name.c_str());
+    return CallbackReturn::FAILURE;
+  }
+
+  if (gravity_source_ == GravitySource::kUrdfKdl) {
+    const auto vector = get_node()->get_parameter("gravity.vector").as_double_array();
+    if (vector.size() != 3) {
+      RCLCPP_FATAL(logger, "'gravity.vector' must have 3 entries but has %zu", vector.size());
+      return CallbackReturn::FAILURE;
+    }
+    std::string description;
+    if (!fetchRobotDescription(description)) {
+      return CallbackReturn::FAILURE;
+    }
+    std::string error;
+    if (!urdf_gravity_.configure(
+        description, {vector[0], vector[1], vector[2]},
+        get_node()->get_parameter("gravity.chain_root").as_string(),
+        get_node()->get_parameter("gravity.chain_tip").as_string(), error))
+    {
+      RCLCPP_FATAL(logger, "Could not build the gravity model from the URDF: %s", error.c_str());
+      return CallbackReturn::FAILURE;
+    }
+    RCLCPP_INFO(
+      logger, "Gravity from the URDF chain '%s' -> '%s' with g = [%.3f, %.3f, %.3f]",
+      urdf_gravity_.rootLink().c_str(), urdf_gravity_.tipLink().c_str(),
+      vector[0], vector[1], vector[2]);
+  }
+
+  if (gravity_source_ == GravitySource::kFrankaModel) {
+    // Only franka_hardware exposes these; in Gazebo the activation will fail
+    // on the missing interfaces, which is the intended, loud failure.
+    franka_robot_model_ = std::make_unique<franka_semantic_components::FrankaRobotModel>(
+      arm_id_ + "/robot_model", arm_id_ + "/robot_state");
+    RCLCPP_INFO(logger, "Gravity from the robot's own model ('%s/robot_model')", arm_id_.c_str());
+  }
 
   // ----------------------------------------------------------- reference --
   const auto trajectory_topic = get_node()->get_parameter("trajectory_topic").as_string();
@@ -209,16 +268,21 @@ CallbackReturn MactControllerBase::on_configure(const rclcpp_lifecycle::State & 
   RCLCPP_INFO(
     logger,
     "MACT configured: %d parameters, adaptation %s, prediction error term %s, "
-    "gravity %s, initial estimate scaled by %.3f",
+    "gravity source '%s', initial estimate scaled by %.3f",
     num_parameters_, adaptation_enabled_ ? "on" : "off",
     adaptation_.usesPredictionError() ? "on" : "off",
-    subtract_gravity_ ? "subtracted (real robot)" : "included (simulation)", scale);
+    toString(gravity_source_), scale);
 
   return CallbackReturn::SUCCESS;
 }
 
 CallbackReturn MactControllerBase::on_activate(const rclcpp_lifecycle::State & /*previous*/)
 {
+  if (franka_robot_model_) {
+    franka_robot_model_->assign_loaned_state_interfaces(state_interfaces_);
+  }
+  gravity_torque_.setZero();
+
   readState();
 
   estimator_.reset();
@@ -247,6 +311,9 @@ CallbackReturn MactControllerBase::on_deactivate(const rclcpp_lifecycle::State &
 {
   // Leave the joints without torque rather than with the last command.
   writeCommand(Vector7d::Zero());
+  if (franka_robot_model_) {
+    franka_robot_model_->release_interfaces();
+  }
   onDeactivateDerived();
   return CallbackReturn::SUCCESS;
 }
@@ -311,17 +378,17 @@ controller_interface::return_type MactControllerBase::update(
   model_valid_ = updateModel(motion, terms_) && terms_.has_regressor_r;
 
   // The model term and the gravity subtraction go together. Commanding
-  // Y_r*pi_hat without being able to remove G_hat from it would apply gravity
-  // twice, since both libfranka and franka_ign_ros2_control add their own
-  // gravity compensation on top of the commanded torque. Falling back to the
-  // PD term is safe in that case: the robot stays gravity-compensated by the
-  // hardware and merely loses the feed-forward.
-  if (subtract_gravity_ && !terms_.has_regressor_g) {
+  // Y_r*pi_hat without being able to remove the gravity part of it would apply
+  // gravity twice, since both libfranka and franka_ign_ros2_control add their
+  // own gravity compensation on top of the commanded torque. Falling back to
+  // the PD term is safe in that case: the robot stays gravity-compensated by
+  // the hardware and merely loses the feed-forward.
+  if (!updateGravity(motion)) {
     model_valid_ = false;
     RCLCPP_WARN_THROTTLE(
       get_node()->get_logger(), *get_node()->get_clock(), 5000,
-      "'gravity.subtract' is set but no gravity regressor is available; "
-      "commanding the PD term alone rather than gravity twice");
+      "No gravity torque available from source '%s'; commanding the PD term "
+      "alone rather than gravity twice", toString(gravity_source_));
   }
 
   // ----------------------------------------------------------- control law --
@@ -350,10 +417,11 @@ controller_interface::return_type MactControllerBase::update(
 
   // -------------------------------------------------------------- command --
   tau_command_ = tau_model_;
-  if (subtract_gravity_ && model_valid_ && terms_.has_regressor_g) {
-    // libfranka adds the commanded torque on top of its own gravity
-    // compensation, so the gravity part has to be removed here.
-    tau_command_.noalias() -= terms_.regressor_g * adaptation_.estimate();
+  if (model_valid_) {
+    // Only when the model term is actually commanded: with the PD term alone
+    // there is no gravity in the command to remove, and subtracting it would
+    // make the arm drop.
+    tau_command_ -= gravity_torque_;
   }
   tau_command_ = tau_command_.cwiseMax(-max_torque_).cwiseMin(max_torque_);
 
@@ -383,6 +451,81 @@ controller_interface::return_type MactControllerBase::update(
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
+
+bool MactControllerBase::updateGravity(const MotionSample & motion)
+{
+  switch (gravity_source_) {
+    case GravitySource::kNone:
+      gravity_torque_.setZero();
+      return true;
+
+    case GravitySource::kEstimate:
+      // reg_G(q) * pi_hat. The only source that depends on the model being
+      // available this cycle.
+      if (!terms_.has_regressor_g) {
+        return false;
+      }
+      gravity_torque_.noalias() = terms_.regressor_g * adaptation_.estimate();
+      return true;
+
+    case GravitySource::kUrdfKdl:
+      gravity_torque_ = urdf_gravity_.compute(motion.q);
+      return true;
+
+    case GravitySource::kFrankaModel: {
+      if (!franka_robot_model_) {
+        return false;
+      }
+      const std::array<double, kNumJoints> gravity =
+        franka_robot_model_->getGravityForceVector();
+      for (int joint = 0; joint < kNumJoints; ++joint) {
+        gravity_torque_(joint) = gravity[joint];
+      }
+      return true;
+    }
+  }
+  return false;
+}
+
+bool MactControllerBase::fetchRobotDescription(std::string & description)
+{
+  const auto logger = get_node()->get_logger();
+  const auto source = get_node()->get_parameter("gravity.description_node").as_string();
+  const auto timeout = std::chrono::duration<double>(
+    get_node()->get_parameter("gravity.description_timeout_s").as_double());
+  const auto timeout_ns = std::chrono::duration_cast<std::chrono::nanoseconds>(timeout);
+
+  // As with the initial estimate: a throw-away node with its own executor, so
+  // that waiting here cannot deadlock the controller manager's executor.
+  auto client_node = std::make_shared<rclcpp::Node>(
+    std::string(get_node()->get_name()) + "_description_client");
+  auto client = std::make_shared<rclcpp::AsyncParametersClient>(client_node, source);
+
+  if (!client->wait_for_service(timeout_ns)) {
+    RCLCPP_FATAL(
+      logger, "Node '%s' did not appear within %.1f s; cannot read 'robot_description'",
+      source.c_str(), timeout.count());
+    return false;
+  }
+
+  auto future = client->get_parameters({"robot_description"});
+  if (rclcpp::spin_until_future_complete(client_node, future, timeout_ns) !=
+    rclcpp::FutureReturnCode::SUCCESS)
+  {
+    RCLCPP_FATAL(logger, "Could not read 'robot_description' from '%s'", source.c_str());
+    return false;
+  }
+
+  const auto values = future.get();
+  if (values.empty() || values[0].get_type() != rclcpp::ParameterType::PARAMETER_STRING ||
+    values[0].as_string().empty())
+  {
+    RCLCPP_FATAL(logger, "'%s' has no usable 'robot_description'", source.c_str());
+    return false;
+  }
+  description = values[0].as_string();
+  return true;
+}
 
 void MactControllerBase::readState()
 {
@@ -445,6 +588,7 @@ void MactControllerBase::publishDiagnostics(const rclcpp::Time & time, const Mot
     toMessage(tau_model_, message.tau_model);
     toMessage(tau_command_, message.tau_cmd);
     toMessage(tau_measured_, message.tau_meas);
+    toMessage(gravity_torque_, message.tau_gravity);
 
     const auto & estimate = adaptation_.estimate();
     for (int parameter = 0; parameter < num_parameters_; ++parameter) {

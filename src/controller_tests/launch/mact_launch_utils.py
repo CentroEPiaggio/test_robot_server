@@ -76,9 +76,17 @@ def controller_parameter_files(controller, arm_id, use_sim_time):
         os.path.join(share, 'config', f'mact_{controller}.yaml'),
     ]
     # Last file wins, so launch arguments override the defaults in the configs.
+    #
+    # The gravity source is the one thing that genuinely differs between the
+    # two environments, because the thing that compensates gravity differs:
+    # franka_ign_ros2_control computes it from the URDF with KDL, the real
+    # robot uses its own model. Selecting the matching one makes the
+    # cancellation exact on both sides; it is the same choice for both
+    # controllers, so the comparison stays fair.
     files.append(_write_override_file({
         'arm_id': arm_id,
         'use_sim_time': use_sim_time,
+        'gravity.source': 'urdf_kdl' if use_sim_time else 'franka_model',
     }))
     return files
 

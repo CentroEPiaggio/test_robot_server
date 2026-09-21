@@ -67,6 +67,9 @@
       # anywhere else. Note also that with friction left out of the model the
       # residual (tau - Y*pi_hat) contains the joint friction, so the estimates
       # absorb part of it.
+      # 1.0 is a starting point chosen by magnitude balance between the two
+      # terms; values around 0.3 have worked better in earlier trials on this
+      # robot, so treat this as the first thing to tune.
       gamma: 1.0
 
       # Diagonal of R_t, one entry per joint.
@@ -96,9 +99,27 @@
     # -------------------------------------------------------------- filters --
     # The hardware gives position and velocity only, so ddq is differentiated
     # from the raw velocity. Cut-off frequencies in Hz; <= 0 disables a filter.
+    #
+    # ddq only enters the prediction error term of eq. (2), through
+    # Y(q, dq, ddq). There, lag is worse than noise: a slow filter shifts the
+    # regressor in time and biases the estimate systematically, while noise is
+    # averaged out by the integrator of the update law. The cut-off is
+    # therefore deliberately high.
+    #
+    # Measured in Gazebo during the Lissajous, with the acceleration sampled at
+    # 100 Hz (so the noise figures are a lower bound):
+    #
+    #   joint 1  |ddq| max 0.97   rms 0.19   noise rms 0.05  rad/s^2
+    #   joint 4  |ddq| max 0.75   rms 0.31   noise rms 0.06  rad/s^2
+    #   joint 5  |ddq| max 3.47   rms 1.02   noise rms 0.12  rad/s^2
+    #   joint 7  |ddq| max 12.85  rms 2.91   noise rms 1.63  rad/s^2
+    #
+    # against a desired |ddq_d| of at most 3.09 rad/s^2. Joint 7 is the one to
+    # watch: it has the smallest inertia and the largest friction-induced
+    # stick-slip, and its acceleration estimate is dominated by noise.
     filters:
       dq_cutoff_hz: 100.0
-      ddq_cutoff_hz: 30.0
+      ddq_cutoff_hz: 100.0
 
     # --------------------------------------------------------------- safety --
     safety:
@@ -111,26 +132,84 @@
       trajectory_timeout_ms: 20.0
 
     # -------------------------------------------------------------- gravity --
+    # The commanded torque is made gravity-free: tau_cmd = tau_model - G.
+    #
+    # This is required BOTH on the real robot and in simulation, and it is the
+    # same setting in both, which is what keeps the comparison fair:
+    #
+    #   * libfranka adds the commanded torque on top of its own gravity
+    #     compensation (franka_hardware passes the effort command straight to
+    #     franka::Torques, libfranka 0.15.0);
+    #   * franka_ign_ros2_control does exactly the same in simulation: its
+    #     IgnitionSystem::write() computes kdl_model_.gravity(q) and adds it
+    #     to every effort command before handing it to Gazebo.
+    #
+    # Commanding gravity here as well would therefore apply it twice.
+    #
+    # 'source' selects WHICH gravity is subtracted, which decides how exact the
+    # cancellation is:
+    #
+    #   estimate      reg_G(q) * pi_hat, the controller's own estimate. Needs
+    #                 nothing else, but leaves a residual (G_applied - G_est)
+    #                 on the joints, which is also a bias in the prediction
+    #                 error term of eq. (2).
+    #   urdf_kdl      the very computation the Gazebo plugin performs:
+    #                 KDL::ChainDynParam::JntToGravity over the URDF chain,
+    #                 with the same solver and the same gravity vector. The
+    #                 cancellation in simulation is then exact. Use this in
+    #                 Gazebo, and keep 'vector' at [0, 0, -9.8] because that is
+    #                 what the plugin hard-codes.
+    #   franka_model  the robot's own gravity vector, read through
+    #                 franka_semantic_components::FrankaRobotModel. This is
+    #                 literally what libfranka compensates, so the cancellation
+    #                 on hardware is exact. Requires franka_hardware: it does
+    #                 not exist in Gazebo, and the controller will fail to
+    #                 activate on the missing state interfaces.
+    #   none          command the torque as computed, for a simulator that does
+    #                 not compensate gravity itself.
+    #
+    # The launch files override this: urdf_kdl in simulation, franka_model on
+    # the robot.
+    #
+    # The choice is not cosmetic, because Y_r*pi_hat already contains the
+    # controller's own gravity estimate, reg_G*pi_hat. Writing G_sub for what
+    # is subtracted here and G_hw for what the hardware adds back:
+    #
+    #   source: estimate  ->  tau_applied = M*ddq_d + C*dq_d + PD + G_hw
+    #   source: urdf_kdl  ->  tau_applied = M*ddq_d + C*dq_d + PD + G_estimated
+    #     (or franka_model)
+    #
+    # With 'estimate' the two gravity terms cancel and the robot is handed the
+    # hardware's exact gravity compensation, which the controller never
+    # computed. That flatters the tracking and biases the prediction error of
+    # eq. (2), because the applied torque is then no longer the tau_model the
+    # update law assumes. With an exact source the loop really runs on the
+    # controller's own model, which is the honest setup for an adaptive
+    # controller: the gravity error is then something the adaptation has to
+    # learn rather than something the simulator hides.
+    #
+    # Measured here: Thunder's gravity (identified Panda parameters) differs
+    # from the FR3 URDF gravity Gazebo applies by 2.2 % rms, at most 0.44 Nm on
+    # joint 4. Small, but it moves the steady tracking error of the wrist
+    # joints by the expected G_error / k_p.
+    #
+    # Whatever the source, the gravity is only subtracted when the model term
+    # is actually commanded. If the controller falls back to the PD term there
+    # is no gravity in the command to remove.
     gravity:
-      # The commanded torque is made gravity-free: tau_cmd = tau_model - reg_G*pi_hat.
-      #
-      # This is required BOTH on the real robot and in simulation, and it is
-      # the same setting in both, which is what keeps the comparison fair:
-      #
-      #   * libfranka adds the commanded torque on top of its own gravity
-      #     compensation (franka_hardware passes the effort command straight to
-      #     franka::Torques, libfranka 0.15.0);
-      #   * franka_ign_ros2_control does exactly the same in simulation: its
-      #     IgnitionSystem::write() computes kdl_model_.gravity(q) and adds it
-      #     to every effort command before handing it to Gazebo.
-      #
-      # Commanding gravity here as well would therefore apply it twice.
-      #
-      # Needs reg_G, which the in-process controller evaluates directly and the
-      # server publishes on franka_server/reg_G. If it is ever unavailable the
-      # controller drops the model term and commands the PD part alone, rather
-      # than commanding gravity twice.
-      subtract: true
+      source: "estimate"
+      # Earth gravity for 'urdf_kdl'. -9.8, not -9.81: that is the value
+      # hard-coded in franka_ign_ros2_control, and matching it is the whole
+      # point of this source.
+      vector: [0.0, 0.0, -9.8]
+      # Node holding 'robot_description', and how long to wait for it.
+      description_node: "robot_state_publisher"
+      description_timeout_s: 10.0
+      # Chain ends for 'urdf_kdl'. Empty means the same choice the Gazebo
+      # plugin makes: the URDF root, and the last leaf link of a breadth-first
+      # walk from it.
+      chain_root: ""
+      chain_tip: ""
 
     # ---------------------------------------------------------- diagnostics --
     diagnostics:

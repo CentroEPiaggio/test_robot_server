@@ -39,7 +39,7 @@ both controllers, equally.
 refers to. What reaches the command interface is
 
 ```
-τ_cmd = τ_model − reg_G · π̂        (gravity.subtract: true, the default)
+τ_cmd = τ_model − G
 ```
 
 **in simulation and on the real robot alike**, because both add their own
@@ -50,32 +50,79 @@ gravity compensation to whatever torque is commanded:
   internal gravity compensation;
 * in simulation, `franka_ign_ros2_control/IgnitionSystem::write()` computes
   `kdl_model_.gravity(q)` and **adds it to every effort command** before
-  handing it to Gazebo — the simulated Franka behaves like the real one in
-  this respect.
+  handing it to Gazebo.
 
-Commanding gravity would therefore apply it twice in both environments. That
-the setting is the same on both sides is convenient: nothing about the control
-law changes between a simulation and an experiment.
+### Which gravity is subtracted
 
-Note that the simulator's compensation uses the URDF inertias, while `reg_G·π̂`
-uses the estimate, so what the joints actually see is `τ_model + (G_true − Ĝ)`
-— exactly the situation on the real robot.
+`gravity.source` selects `G`, and the choice is not cosmetic, because
+`Y_r·π̂` already contains the controller's own gravity estimate `reg_G·π̂`.
+Writing `G_hw` for what the hardware adds back:
 
-This matters for the update law now that `gamma` is non-zero. Eq. (2) compares
-the torque the robot *applied* with `Y π̂`, and the controller feeds it
-`τ_model`, i.e. the previous cycle's model torque. The torque actually applied
-is `τ_model + (G_true − Ĝ)`, so the prediction error is blind to the gravity
-model error by exactly that term. The alternative is the measured torque from
-the effort state interface, which captures it — the controller records it as
-`tau_meas` in every diagnostic sample, so the two can be compared offline
-before deciding to switch.
+| `gravity.source` | `G` | resulting applied torque |
+|---|---|---|
+| `estimate` | `reg_G·π̂` | `M̂q̈_d + Ĉq̇_d + PD + G_hw` |
+| `urdf_kdl` | KDL on the URDF, as the Gazebo plugin computes it | `M̂q̈_d + Ĉq̇_d + PD + Ĝ` |
+| `franka_model` | the robot's own vector, via `FrankaRobotModel` | `M̂q̈_d + Ĉq̇_d + PD + Ĝ` |
+| `none` | 0 | for a simulator that does not compensate gravity |
 
-**The model term and the gravity subtraction are coupled.** If
-`gravity.subtract` is set but no gravity regressor is available — the server
-has not sent one yet, or its samples went stale — the controller drops the
-model term and commands the PD part alone, rather than commanding gravity
-twice. This is logged and shows up as `model_valid = false` in the
-diagnostics.
+With `estimate` the two gravity terms cancel and the robot is handed the
+hardware's *exact* gravity compensation — which the controller never computed.
+That flatters the tracking, and it biases the prediction error of eq. (2),
+because the applied torque is then no longer the `τ_model` the update law
+assumes. With an exact source the loop really runs on the controller's own
+model, which is the honest setup for an adaptive controller: the gravity error
+becomes something the adaptation has to learn rather than something the
+simulator hides.
+
+`urdf_kdl` reproduces the plugin's computation exactly — same URDF, same
+`KDL::ChainDynParam::JntToGravity`, same chain (URDF root to the last leaf of a
+breadth-first walk, here `world → fr3_link8`), same hard-coded `g = -9.8`.
+`franka_model` reads the vector libfranka itself compensates, through the
+`<arm_id>/robot_model` and `<arm_id>/robot_state` state interfaces; those exist
+only with `franka_hardware`, so in Gazebo the controller would fail to activate
+on the missing interfaces. The launch files select `urdf_kdl` in simulation and
+`franka_model` on the robot, the same for both controllers.
+
+Measured here: Thunder's gravity (identified Panda parameters) differs from the
+FR3 URDF gravity Gazebo applies by **2.2 % rms, at most 0.44 Nm** on joint 4.
+Small, but it moves the steady tracking error of the wrist joints by the
+expected `G_error / k_p`.
+
+The gravity is subtracted only when the model term is actually commanded: with
+the PD term alone there is no gravity in the command to remove, and taking it
+out would make the arm drop. The value used each cycle is recorded as
+`tau_gravity` in the diagnostics.
+
+## How τ and Y line up in the update law
+
+Eq. (2) compares the torque the robot applied with `Y π̂`, and the two should
+refer to the same instant. They do not, quite, and the offset is different in
+the two controllers. Writing the cycle index `k`:
+
+* `ddq_k` is a backward difference, `(q̇_k − q̇_{k−1})/T`, so it is the mean
+  acceleration over the interval `[t_{k−1}, t_k)`;
+* `τ_{k−1}` is the torque that was applied over exactly that interval, and it
+  is what the controller feeds the update law (`tau_model_previous_`);
+* the **in-process** controller evaluates `Y(q_k, q̇_k, q̈_k)` in the same
+  cycle, so its acceleration matches the interval of `τ_{k−1}` — aligned;
+* the **server-based** controller receives `Y(q_{k−1}, q̇_{k−1}, q̈_{k−1})`,
+  because the state it publishes at the end of cycle `k−1` comes back one
+  round trip later. Its acceleration belongs to `[t_{k−2}, t_{k−1})` while
+  `τ_{k−1}` was applied over `[t_{k−1}, t_k)` — one cycle out.
+
+So the served `Y` is not stale with respect to the *controller's* clock in any
+loose sense: it is exactly one control period behind the state it was asked
+about, which `model_age_ms` measures directly (mean 0.78 ms at 1 kHz). What it
+is out of step with is the torque it gets paired with.
+
+This is fixable without touching the server: keeping a two-deep history of
+`τ_model` and pairing the served `Y` with `τ_{k−2}` restores the alignment,
+at the cost of feeding the update law a torque one extra cycle old. It is not
+done here, because the difference between the two controllers is precisely the
+quantity the comparison is meant to expose — with `gamma = 0` the two parameter
+trajectories agree to 0.1 %, with `gamma = 1` they diverge by a few per cent,
+and that gap *is* the measurement. Align them only if the goal changes from
+measuring the architecture to hiding it.
 
 ## Degraded operation
 

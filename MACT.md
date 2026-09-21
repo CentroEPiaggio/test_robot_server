@@ -26,23 +26,37 @@ On hardware, `real_experiment.launch.py controller:=... robot_ip:=172.16.0.3`.
 
 ## Results so far (Gazebo, 1 kHz, i9-12900H)
 
-Both controllers, same trajectory, same gains, full update law (`gamma = 1`, so the prediction error term of eq. (2) is active and both regressors are needed every cycle):
+Both controllers, same trajectory, same gains, full update law (`gamma = 1`),
+gravity subtracted from the exact source the simulator applies (`urdf_kdl`):
 
 | | in-process | server |
 |---|---|---|
-| tracking error, rms | 0.04396 rad | 0.04381 rad |
-| tracking error, max | 0.05304 rad | 0.05287 rad |
-| ‖π̂(T) − π̂(0)‖ | 0.774 | 0.721 |
-| `update()` mean | 254 µs | 16 µs |
-| `update()` worst | 3409 µs | 772 µs |
-| model staleness | 0 | mean 0.78 ms, max 2.0 ms |
+| tracking error, rms | 0.04350 rad | 0.04398 rad |
+| tracking error, max | 0.06344 rad | 0.06249 rad |
+| ‖π̂(T) − π̂(0)‖ | 0.110 | 0.090 |
+| `update()` mean | 306 µs | 15 µs |
+| `update()` worst | 4217 µs | 832 µs |
+| model staleness | 0 | mean 0.84 ms, max 3.0 ms |
 | degraded cycles | 0 | 0 |
 
-The tracking is the same to three digits — the point of the exercise, since the two differ only in where the model comes from. The parameter trajectories agree less closely (7 %) than they did with the tracking term alone, where they matched to 0.1 %: the prediction error term is the part that is sensitive to the round trip, because it depends on `q̈` and on a `Y` that is one cycle old and quantised to float32 on the wire. That is worth a sentence in the paper.
+Tracking is the same to three digits — the point of the exercise, since the two
+differ only in where the model comes from. The parameter trajectories agree
+less closely, and that gap is itself the measurement: with `gamma = 0` (the
+tracking term alone) they match to 0.1 %; with the prediction error term active
+they differ by ~18 %, because that term depends on `q̈` and on a `Y` that is one
+control period behind the torque it is paired with, and quantised to float32 on
+the wire. See the τ/Y alignment section in
+[`src/mact_controllers/README.md`](src/mact_controllers/README.md).
 
-The `update()` figures are wall-clock inside a loaded, non-real-time Gazebo process and vary by ~15 % between runs; they compare the two controllers on the same machine, they are not a real-time guarantee.
+The `update()` figures are wall-clock inside a loaded, non-real-time Gazebo
+process and vary by ~15 % between runs; they compare the two controllers on the
+same machine, they are not a real-time guarantee.
 
-The residual tracking error is the unmodelled joint friction: the FR3 URDF has 0.2 Nm of Coulomb friction per joint, and the per-joint error is very close to 0.2 Nm / k_p — 0.0005 rad on the shoulder joints, 0.05 rad on joint 7 where k_p is 4.4. Adaptation of the inertial parameters cannot remove it; modelling friction (`reg_dl`, 14 more parameters) would.
+The residual tracking error is unmodelled joint friction: the FR3 URDF has
+0.2 Nm of Coulomb friction per joint, and the per-joint error is close to
+0.2 Nm / k_p — 0.0008 rad on the shoulder joints, 0.06 rad on joint 7 where
+k_p is 4.4. Adaptation of the inertial parameters cannot remove it; modelling
+friction (`reg_dl`, 14 more parameters) would.
 
 ## Open item on the generator
 

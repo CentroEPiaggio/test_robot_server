@@ -8,6 +8,7 @@
 #include <vector>
 
 #include <controller_interface/controller_interface.hpp>
+#include <franka_semantic_components/franka_robot_model.hpp>
 #include <rclcpp/rclcpp.hpp>
 #include <realtime_tools/realtime_buffer.hpp>
 #include <realtime_tools/realtime_publisher.hpp>
@@ -16,6 +17,7 @@
 #include <mact_msgs/msg/mact_state.hpp>
 
 #include "mact_controllers/common/adaptation_law.hpp"
+#include "mact_controllers/common/gravity_source.hpp"
 #include "mact_controllers/common/joint_state_estimator.hpp"
 #include "mact_controllers/common/types.hpp"
 
@@ -132,10 +134,15 @@ protected:
   int numParameters() const {return num_parameters_;}
   const std::vector<std::string> & jointNames() const {return joint_names_;}
   bool needsRegressor() const {return adaptation_.usesPredictionError();}
-  bool needsGravityRegressor() const {return subtract_gravity_;}
+  /// Only the 'estimate' gravity source needs reg_G; the others do not.
+  bool needsGravityRegressor() const {return gravity_source_ == GravitySource::kEstimate;}
 
 private:
   void readState();
+  /// Fetch the robot description, used by the urdf_kdl gravity source.
+  bool fetchRobotDescription(std::string & description);
+  /// Fill gravity_torque_ from the configured source; false when unavailable.
+  bool updateGravity(const MotionSample & motion);
   void writeCommand(const Vector7d & torque);
   void publishDiagnostics(const rclcpp::Time & time, const MotionSample & motion);
   void trajectoryCallback(const trajectory_msgs::msg::JointTrajectoryPoint::SharedPtr message);
@@ -176,7 +183,13 @@ private:
 
   // ---------------------------------------------------------------- model --
   ModelTerms terms_;
-  bool subtract_gravity_{false};
+
+  // ------------------------------------------------------------- gravity --
+  GravitySource gravity_source_{GravitySource::kNone};
+  Vector7d gravity_torque_{Vector7d::Zero()};
+  UrdfGravityModel urdf_gravity_;
+  std::unique_ptr<franka_semantic_components::FrankaRobotModel> franka_robot_model_;
+
   /// Whether the model term was actually used in the last cycle.
   bool model_valid_{false};
 

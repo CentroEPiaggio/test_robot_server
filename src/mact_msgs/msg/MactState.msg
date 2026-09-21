@@ -34,6 +34,11 @@ float64[7] tau_model
 float64[7] tau_cmd
 float64[7] tau_meas     # effort state interface
 
+# Gravity torque removed from the command, from whichever source
+# 'gravity.source' selects. Recorded so that the cancellation can be checked
+# against the alternatives offline.
+float64[7] tau_gravity
+
 # -------------------------------------------------------------- adaptation --
 float64[] pi_hat        # current estimate of the regressor parameters (par_REG)
 

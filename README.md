@@ -1,11 +1,11 @@
-# ROS2 Bifrank workspace
-Docker workspaces to use and deploy the bifrank system (bimanual franka manipulator), developing inside a container.
+# ROS2 Franka workspace
+Docker workspaces to use and test the Thunder robot server in a ROS 2 environment, developing inside a container.
 
 ## Overview
-This environment integrates ROS2 Humble with the Franka ecosystem and the Bifrank framework.
+This environment integrates ROS2 Humble with the Franka ecosystem and integrates the robot server.
 It also enables the use of GUI interfaces (e.g. Gazebo and RViz).
 
-If you find this useful, you can cite [the original repository](https://github.com/GiorgioSimonini/docker_ws) and/or [me](https://github.com/GiorgioSimonini) in your work.
+If you find this useful, you can cite [the original workspace repository](https://github.com/GiorgioSimonini/docker_ws), [Thunder Dynamics](https://github.com/CentroEPiaggio/thunder_dynamics), and/or [me](https://github.com/GiorgioSimonini) in your work.
 
 
 ## Preliminaries
@@ -22,7 +22,7 @@ You also would probably need [Visual Studio Code](https://code.visualstudio.com/
 ## Usage
 Clone the repository wherever you want on the system with recursive behavior(better to clone with linux for line endings, not tested with WSL but should work)
 ```bash
-git clone --recursive https://github.com/GiorgioSimonini/bifrank_ws
+git clone --recursive https://github.com/CentroEPiaggio/test_robot_server
 ```
 
 The docker base image and the ROS version can be changed by modifying the `BASE_IMAGE` and the `BASE_TAG` in the `.devcontainer/Dockerfile`.
@@ -37,7 +37,7 @@ colcon build --symlink-install
 ```
 
 There are two different ways to use this framework:
-- Using DevContainers that creates a persistent container with name `ros2_bifrank_dev` in which all the installations persists since a new build. This scenario is usefull while you are developing. However, the changes will be lost when you recreate the container, so pay attention.
+- Using DevContainers that creates a persistent container with name `ros2_franka_roscon_dev` in which all the installations persists since a new build. This scenario is usefull while you are developing. However, the changes will be lost when you recreate the container, so pay attention.
 - Using the terminal, each container created in this way is erased upon exit and have no persistency. This is better for running demos or execute commands.
 
 ### Use with vscode

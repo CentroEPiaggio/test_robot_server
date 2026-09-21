@@ -21,6 +21,10 @@ find_package(Eigen3 REQUIRED)
 find_package(mact_msgs REQUIRED)
 find_package(thunder_franka REQUIRED)
 find_package(franka_server REQUIRED)
+find_package(franka_semantic_components REQUIRED)
+find_package(kdl_parser REQUIRED)
+find_package(orocos_kdl REQUIRED)
+find_package(urdf REQUIRED)
 
 set(THIS_PACKAGE_INCLUDE_DEPENDS
   controller_interface
@@ -32,10 +36,15 @@ set(THIS_PACKAGE_INCLUDE_DEPENDS
   trajectory_msgs
   mact_msgs
   franka_server
+  franka_semantic_components
+  kdl_parser
+  orocos_kdl
+  urdf
 )
 
 add_library(${PROJECT_NAME} SHARED
   src/common/joint_state_estimator.cpp
+  src/common/gravity_source.cpp
   src/common/adaptation_law.cpp
   src/mact_controller_base.cpp
   src/mact_local_controller.cpp
