@@ -41,9 +41,12 @@ gravity subtracted from the exact source the simulator applies (`urdf_kdl`):
 
 Tracking agrees to three digits and the parameter trajectories to 0.5 %, which
 is the point of the exercise: the two differ only in where the model comes
-from. Getting the parameter trajectories to agree required holding π̂ until the
-first reference arrives — without that, each run adapts for a different length
-of time before the motion starts and the estimates are already apart at t = 0.
+from. Getting the parameter trajectories to agree required the two runs to
+adapt over the same interval — without that, each one estimates for a different
+length of time before the motion starts and the estimates are already apart at
+t = 0. That is now explicit: the controller never decides when to adapt, and
+the generator calls `/mact_controller/set_adaptation` at the phase boundary
+(see *Who decides when to adapt* below).
 
 The `update()` figures are wall-clock inside a loaded, non-real-time Gazebo
 process and vary by ~15 % between runs; they compare the two controllers on the
@@ -55,13 +58,89 @@ The residual tracking error is unmodelled joint friction: the FR3 URDF has
 k_p is 4.4. Adaptation of the inertial parameters cannot remove it; modelling
 friction (`reg_dl`, 14 more parameters) would.
 
+## If a launch refuses to start
+
+```
+A controller manager is already running at /controller_manager.
+```
+
+A previous run left Gazebo behind. `ros_gz_sim` starts it through a `ruby`
+wrapper under `/bin/sh -c`, so the real `ign gazebo` is a grandchild of the
+launch and does not always die with it — and while it lives it keeps a
+`/controller_manager` with the controllers already loaded, against which the
+next run's spawner fails to configure them. The simulation launch now checks
+for that before starting anything and says so, instead of booting Gazebo for
+40 s and then reporting a confusing `Failed to configure controller` (which, on
+that path, `joint_state_broadcaster` fails too — that is the tell).
+
+```bash
+pkill -9 -f 'i[g]n gazebo'
+```
+
+The `[g]` is not a typo: `pkill -f 'ign gazebo'` matches its own command line
+and kills the shell running it before it reaches Gazebo.
+
+The launch now also shuts itself down when the generator finishes, which is
+what `stop_when_finished: true` in `lissajous.yaml` always intended, so the
+usual way of ending a run no longer leaves anything behind.
+
+## Who decides when to adapt
+
+The controller does not. It sees a stream of reference points and has no way of
+telling an approach from the excited part of a trajectory, so anything it
+inferred from the reference would be a heuristic. It exposes a
+`std_srvs/SetBool` service instead — `adaptation.service`, by default
+`/mact_controller/set_adaptation` — starts from `adaptation.enabled` (which is
+`false` in the shared config), and integrates the update law whenever the flag
+is set. `MactState.adaptation_enabled` records the flag in the bag, so the
+parameter trajectory can be read against it.
+
+The Lissajous generator is what calls it: `adaptation_start_phase` selects the
+boundary (`lissajous`, the default, or `approach`), and
+`adaptation_stop_at_hold` freezes the estimate again when the motion ends, so
+the π̂ recorded at the end of a run is the one the excited part produced rather
+than one that drifted through the final hold.
+
+## Which torque the update law compares against
+
+`adaptation.torque_source` selects it, and `measured` is the default. The
+prediction error of eq. (2) needs the torque the robot *applied*; the effort
+state interface measures exactly that, while `tau_model` is only what the robot
+was asked for, equal to what it applied only when the subtracted gravity
+matches what the hardware adds back, nothing saturates, and the joints are
+frictionless. Measured here on the Lissajous in Gazebo, the residual against
+`tau_model` is about twice the one against the measurement (0.88 against
+0.45 Nm); the difference is the 0.2 Nm of Coulomb friction the FR3 URDF gives
+every joint, which the update law was otherwise fitting into the inertial
+parameters.
+
+## Low gains make the friction floor the whole error
+
+Worth knowing before reading a run with the feedback turned down. The residual
+converging while the tracking error stays put is not a failure of the
+adaptation: the two are the same number seen through `1 / k_p`. With
+`k_p = [30, 30, 30, 30, 10, 10, 1]` over the Lissajous:
+
+| | j1 | j2 | j3 | j4 | j5 | j6 | j7 |
+|---|---|---|---|---|---|---|---|
+| ‖τ_meas − Y·π̂‖ rms [Nm] | 0.05 | 0.72 | 0.52 | 0.37 | 0.31 | 0.27 | 0.09 |
+| e rms [rad] | 0.007 | 0.024 | 0.019 | 0.015 | 0.040 | 0.034 | **0.191** |
+| (0.2 Nm + residual) / k_p | 0.009 | 0.031 | 0.024 | 0.019 | 0.051 | 0.047 | 0.291 |
+
+The last row brackets the measured error on every joint, and joint 7 alone —
+0.2 Nm of friction against `k_p = 1.0` — is essentially the whole ‖e‖. No
+amount of adaptation removes it, because friction is not in the parameter
+vector. Note also that ‖π̂ − π_nom‖ only falls from 5.19 to 4.39 over a run: the
+residual converges, the parameters do not, because the trajectory is not
+persistently exciting and the regressor null space absorbs the rest. That is
+why the figure plots the residual.
+
 ## Figures
 
 ```bash
-ros2 launch controller_tests gazebo_experiment.launch.py controller:=server initial_scale:=0.6
-ros2 launch controller_tests gazebo_experiment.launch.py controller:=local  initial_scale:=0.6
-ros2 run controller_tests plot_abstract_figure.py \
-    --server bags/gazebo_server_... --local bags/gazebo_local_... --output fig2
+ros2 launch controller_tests gazebo_experiment.launch.py headless:=true controller:=server initial_scale:=0.3
+ros2 launch controller_tests gazebo_experiment.launch.py headless:=true controller:=local  initial_scale:=0.3
+ros2 run controller_tests plot_abstract_figure.py --server bags/gazebo_server_* --local bags/gazebo_local_* --output fig2
 ```
 
 produces the two data panels of Fig. 2. The parameter panel plots the torque

@@ -21,6 +21,7 @@ from ament_index_python.packages import get_package_share_directory
 from launch import LaunchContext, LaunchDescription
 from launch.actions import (
     DeclareLaunchArgument,
+    EmitEvent,
     IncludeLaunchDescription,
     OpaqueFunction,
     RegisterEventHandler,
@@ -28,6 +29,7 @@ from launch.actions import (
 )
 from launch.conditions import IfCondition
 from launch.event_handlers import OnProcessExit
+from launch.events import Shutdown
 from launch.launch_description_sources import PythonLaunchDescriptionSource
 from launch.substitutions import LaunchConfiguration, PythonExpression
 from launch_ros.actions import Node
@@ -38,6 +40,7 @@ from mact_launch_utils import (  # noqa: E402
     controller_spawner,
     joint_state_broadcaster_spawner,
     robot_server_node,
+    stale_controller_manager_check,
     trajectory_node,
 )
 
@@ -109,13 +112,14 @@ def experiment_chain(context: LaunchContext, spawn):
         LaunchConfiguration('initial_scale'))
     mact = controller_spawner(
         controller, arm_id, use_sim_time=True,
-        initial_scale=float(initial_scale) if initial_scale else None)
+        initial_scale=float(initial_scale) if initial_scale.strip() != '' else None)
+
+    trajectory = trajectory_node(arm_id, use_sim_time=True)
 
     after_controller = []
     if record:
         after_controller.append(bag_recorder(controller, environment='gazebo'))
-    after_controller.append(
-        TimerAction(period=2.0, actions=[trajectory_node(arm_id, use_sim_time=True)]))
+    after_controller.append(TimerAction(period=2.0, actions=[trajectory]))
 
     actions += [
         # The controller manager only exists once the robot is in the world.
@@ -125,6 +129,16 @@ def experiment_chain(context: LaunchContext, spawn):
             event_handler=OnProcessExit(target_action=joint_state, on_exit=[mact])),
         RegisterEventHandler(
             event_handler=OnProcessExit(target_action=mact, on_exit=after_controller)),
+        # The generator shuts itself down when the motion is over
+        # ('stop_when_finished' in lissajous.yaml); take the rest of the launch
+        # down with it. Without this, Gazebo and the controller manager stay up
+        # after every run, and an interrupted launch leaves them behind for the
+        # next one to collide with -- which shows up as a spawner that cannot
+        # configure controllers that are, confusingly, already loaded.
+        RegisterEventHandler(
+            event_handler=OnProcessExit(
+                target_action=trajectory,
+                on_exit=[EmitEvent(event=Shutdown(reason='trajectory finished'))])),
     ]
     return actions
 
@@ -207,6 +221,10 @@ def generate_launch_description():
         DeclareLaunchArgument(
             'headless', default_value='false',
             description='Run Gazebo without its GUI (no display needed).'),
+
+        # First, before anything of ours is on the graph: any controller manager
+        # visible at this point belongs to a run that never shut down.
+        OpaqueFunction(function=stale_controller_manager_check),
 
         gazebo,
         clock_bridge,

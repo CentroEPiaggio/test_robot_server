@@ -17,6 +17,7 @@
   <depend>rclcpp</depend>
   <depend>mact_msgs</depend>
   <depend>sensor_msgs</depend>
+  <depend>std_srvs</depend>
   <depend>trajectory_msgs</depend>
 
   <exec_depend>controller_manager</exec_depend>

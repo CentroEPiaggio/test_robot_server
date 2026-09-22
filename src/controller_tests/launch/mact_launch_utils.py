@@ -11,6 +11,7 @@ trajectory generator, same recorded topics, same parameter files.
 
 import os
 import tempfile
+import time
 from datetime import datetime
 
 import yaml
@@ -51,6 +52,73 @@ SERVER_BAG_TOPICS = [
     '/controller/par_REG',
     '/controller/par_DYN',
 ]
+
+
+def stale_controller_manager_check(context, *_args, **_kwargs):
+    """
+    Refuse to start while a controller manager from a previous run is alive.
+
+    A launch that was interrupted rather than shut down leaves Gazebo -- and
+    with it the controller manager -- running. The next launch then finds the
+    controllers already loaded on *that* manager and the spawner reports
+
+        Controller already loaded, skipping load_controller
+        Failed to configure controller
+
+    which says nothing about the actual cause. This runs before anything of our
+    own starts, so any controller manager it finds belongs to somebody else.
+
+    It never fails the launch on its own account: if the graph cannot be
+    inspected at all, the run goes ahead as before.
+    """
+    try:
+        import rclpy
+    except ImportError:
+        return []
+
+    # A private context, never the default one: launch_ros owns that, and
+    # initialising or shutting it down from here would pull the rug out from
+    # under the rest of the launch.
+    found = []
+    private = None
+    node = None
+    try:
+        private = rclpy.Context()
+        private.init()
+        node = rclpy.create_node(f'mact_launch_precheck_{os.getpid()}', context=private)
+        # Discovery is not instantaneous; give an existing manager a moment to
+        # show up rather than declaring the graph empty on the first look.
+        deadline = time.time() + 2.0
+        while time.time() < deadline:
+            found = [
+                (namespace.rstrip('/') + '/' + name)
+                for name, namespace in node.get_node_names_and_namespaces()
+                if name == 'controller_manager'
+            ]
+            if found:
+                break
+            time.sleep(0.1)
+    except Exception:  # noqa: BLE001 - a broken check must not break the launch
+        return []
+    finally:
+        try:
+            if node is not None:
+                node.destroy_node()
+            if private is not None:
+                private.try_shutdown()
+        except Exception:  # noqa: BLE001
+            pass
+
+    if found:
+        raise RuntimeError(
+            'A controller manager is already running at ' + ', '.join(found) + '.\n'
+            'This is almost always a previous run that was interrupted instead of '
+            'shut down: its Gazebo is still alive, holds the controllers, and the '
+            'spawner would fail to configure them against it.\n'
+            "Kill it first --  pkill -9 -f 'i[g]n gazebo'  -- and launch again.\n"
+            '(The [g] is deliberate: a plain pattern matches the pkill command '
+            'itself and kills the shell before it kills Gazebo.)')
+    return []
 
 
 def _write_override_file(parameters):

@@ -25,6 +25,7 @@ find_package(franka_semantic_components REQUIRED)
 find_package(kdl_parser REQUIRED)
 find_package(orocos_kdl REQUIRED)
 find_package(urdf REQUIRED)
+find_package(std_srvs REQUIRED)
 
 set(THIS_PACKAGE_INCLUDE_DEPENDS
   controller_interface
@@ -40,9 +41,11 @@ set(THIS_PACKAGE_INCLUDE_DEPENDS
   kdl_parser
   orocos_kdl
   urdf
+  std_srvs
 )
 
 add_library(${PROJECT_NAME} SHARED
+  src/common/types.cpp
   src/common/joint_state_estimator.cpp
   src/common/gravity_source.cpp
   src/common/adaptation_law.cpp

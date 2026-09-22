@@ -3,6 +3,7 @@
 
 #pragma once
 
+#include <atomic>
 #include <memory>
 #include <string>
 #include <vector>
@@ -12,6 +13,7 @@
 #include <rclcpp/rclcpp.hpp>
 #include <realtime_tools/realtime_buffer.hpp>
 #include <realtime_tools/realtime_publisher.hpp>
+#include <std_srvs/srv/set_bool.hpp>
 #include <trajectory_msgs/msg/joint_trajectory_point.hpp>
 
 #include <mact_msgs/msg/mact_state.hpp>
@@ -53,9 +55,12 @@ using CallbackReturn = rclcpp_lifecycle::node_interfaces::LifecycleNodeInterface
  *                                         gravity internally, so commanding it
  *                                         again would double it)
  *
- * with G_hat = reg_G(q) * pi_hat. The distinction matters for the update law
- * too: eq. (2) needs the torque the robot applies, i.e. `tau_model`, not the
- * gravity-free `tau_cmd`.
+ * with G_hat = reg_G(q) * pi_hat. Neither of the two is what eq. (2) wants,
+ * though: the update law needs the torque the robot *applied*, and the effort
+ * state interface measures exactly that. `adaptation.torque_source` selects
+ * between the measurement (the default) and `tau_model`, which is only equal
+ * to it when the subtracted gravity matches the hardware's, nothing saturated,
+ * and the joints are frictionless.
  *
  * ### Degraded operation
  *
@@ -64,6 +69,16 @@ using CallbackReturn = rclcpp_lifecycle::node_interfaces::LifecycleNodeInterface
  * is dropped and the controller commands the PD part alone, freezing the
  * parameter estimate until fresh data arrives. This is logged and reported in
  * the diagnostics message so that a degraded interval is visible in the bag.
+ *
+ * ### When the update law runs
+ *
+ * The controller has no opinion on when adaptation should start. It integrates
+ * the update law whenever it is enabled, and nothing else gates it: the flag
+ * starts at `adaptation.enabled` and is flipped from the outside through a
+ * std_srvs/SetBool service. Whoever owns the motion -- the trajectory
+ * generator, in these experiments -- is the one that knows when estimating is
+ * meaningful, and it says so explicitly rather than having the controller
+ * infer it from the shape of the reference.
  */
 class MactControllerBase : public controller_interface::ControllerInterface
 {
@@ -146,6 +161,10 @@ private:
   void writeCommand(const Vector7d & torque);
   void publishDiagnostics(const rclcpp::Time & time, const MotionSample & motion);
   void trajectoryCallback(const trajectory_msgs::msg::JointTrajectoryPoint::SharedPtr message);
+  /// Service handler of `adaptation.service`; runs outside the control loop.
+  void setAdaptationCallback(
+    const std_srvs::srv::SetBool::Request::SharedPtr request,
+    std_srvs::srv::SetBool::Response::SharedPtr response);
 
   // ------------------------------------------------------------ interface --
   std::vector<std::string> joint_names_;
@@ -162,9 +181,15 @@ private:
   AdaptationLaw adaptation_;
   Eigen::VectorXd initial_estimate_;
   int num_parameters_{100};
-  bool adaptation_enabled_{true};
-  /// Latched by the first reference; the estimate is held until then.
-  bool adaptation_started_{false};
+  /// Which torque the prediction error of eq. (2) compares against.
+  AdaptationTorqueSource adaptation_torque_source_{AdaptationTorqueSource::kMeasured};
+  /// Value the flag is (re)set to on every activation.
+  bool adaptation_enabled_default_{true};
+  /// Whether the update law integrates. Written by the service callback from
+  /// the node's executor thread and read by update() from the real-time one,
+  /// which is why it is atomic; nothing else is shared between the two.
+  std::atomic<bool> adaptation_enabled_{true};
+  rclcpp::Service<std_srvs::srv::SetBool>::SharedPtr adaptation_service_;
 
   // ----------------------------------------------------------- references --
   realtime_tools::RealtimeBuffer<TrajectorySample> trajectory_buffer_;
@@ -173,6 +198,8 @@ private:
   double trajectory_timeout_s_{0.0};
   /// The generator's motion clock, as last reported by the reference.
   double trajectory_time_{0.0};
+  /// Whether the last cycle had a reference that was not stale.
+  bool reference_fresh_{false};
 
   // ------------------------------------------------------------- measured --
   Vector7d q_{Vector7d::Zero()};

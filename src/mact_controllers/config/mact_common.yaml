@@ -45,8 +45,12 @@
     # gains of Franka's joint impedance examples (k_p 50, k_v 5 on joint 7)
     # put that joint into a limit cycle at its velocity limit in Gazebo.
     gains:
-      k_p: [415.1, 1300.5, 791.0, 709.9, 25.1, 29.3, 4.4]
-      k_v: [27.7, 86.7, 52.7, 47.3, 1.7, 2.0, 0.3]
+      # # high
+      # k_p: [415.1, 1300.5, 791.0, 709.9, 25.1, 29.3, 4.4]
+      # k_v: [27.7, 86.7, 52.7, 47.3, 1.7, 2.0, 0.3]
+      # low
+      k_p: [30.0, 30.0, 30.0, 30.0, 10.0, 10.0, 4.0]
+      k_v: [5.0, 5.0, 5.0, 5.0, 1.0, 1.0, 0.4]
 
     # ----------------------------------------------------------- adaptation --
     # Size of the Thunder regressor parameter vector par_REG: 10 joint blocks
@@ -54,7 +58,42 @@
     num_parameters: 100
 
     adaptation:
-      enabled: true
+      # Value the update law starts from at every activation. It is FALSE by
+      # design: the controller has no way of knowing when estimating is
+      # meaningful -- it sees a stream of reference points and nothing else --
+      # so whoever owns the motion turns it on. In these experiments that is
+      # the Lissajous generator, which calls the service below when the
+      # approach ends. Running the controller without a generator and wanting
+      # adaptation is the case to set this to true for.
+      enabled: false
+
+      # std_srvs/SetBool service that switches the update law at runtime.
+      # '~/' resolves against the controller's node name, so with the spawner's
+      # default this is /mact_controller/set_adaptation, which is what
+      # trajectory_publisher_node's 'adaptation_service' defaults to. Try it by
+      # hand with
+      #   ros2 service call /mact_controller/set_adaptation std_srvs/srv/SetBool "{data: true}"
+      service: "~/set_adaptation"
+
+      # Which torque the prediction error term compares against:
+      #
+      #   measured  the effort state interface -- the link-side torque sensor on
+      #             hardware, the transmitted joint wrench in Gazebo. This is an
+      #             independent measurement of the rigid-body dynamics, which is
+      #             what eq. (2) actually asks for. Joint friction is internal
+      #             to the actuator and does not appear in it, so it is not
+      #             fitted into the inertial parameters, and neither torque
+      #             saturation nor a 'gravity.source' that differs from what the
+      #             hardware adds back can bias the estimate.
+      #   model     tau_model of the previous cycle, i.e. what the robot was
+      #             asked for. Equal to what it applied only when all three of
+      #             those hold. Measured here on the Lissajous in Gazebo, the
+      #             residual against tau_model is about twice the one against
+      #             the measurement (0.88 vs 0.45 Nm), the difference being the
+      #             0.2 Nm of Coulomb friction the FR3 URDF gives every joint,
+      #             which the update law was quietly absorbing into pi_hat.
+      #             Kept for reproducing the earlier runs.
+      torque_source: "model"
 
       # Weight of the prediction error term gamma * Y^T * R_t * (tau - Y*pi_hat)
       # of eq. (2). Set it to 0.0 to run the tracking term alone, which also
@@ -88,13 +127,14 @@
       #   m, m*c_x, m*c_y, m*c_z, I_xx, I_xy, I_xz, I_yy, I_yz, I_zz
       # Masses, first moments and inertias differ by orders of magnitude, which
       # is exactly why a single scalar gain is impractical here.
-      R_p_param: [1.0e-2, 1.0e-3, 1.0e-3, 1.0e-3,
-                  1.0e-4, 1.0e-4, 1.0e-4, 1.0e-4, 1.0e-4, 1.0e-4]
+      # R_p_param: [1.0e-2, 1.0e-3, 1.0e-3, 1.0e-3,
+      #             1.0e-4, 1.0e-4, 1.0e-4, 1.0e-4, 1.0e-4, 1.0e-4]
+      R_p_param: [1.0e-2, 0.1e-2, 0.1e-2, 0.1e-2, 0.01e-2, 0.01e-2, 0.01e-2, 0.01e-2, 0.01e-2, 0.01e-2]
 
       # pi_hat(0) is the nominal par_REG (queried from the server, or taken
       # from the linked model) multiplied by this factor. Set it away from 1.0
       # to start from a deliberately wrong estimate and watch the convergence.
-      initial_scale: 1.0
+      initial_scale: 0.4
 
     # -------------------------------------------------------------- filters --
     # The hardware gives position and velocity only, so ddq is differentiated
@@ -126,7 +166,7 @@
       # FR3 joint torque limits.
       max_torque: [87.0, 87.0, 87.0, 87.0, 12.0, 12.0, 12.0]
       # Deactivate if any joint error exceeds this [rad]. 0 disables the check.
-      max_tracking_error: 0.5
+      max_tracking_error: 0.0
       # Beyond this age the reference is considered stale and the controller
       # holds the last commanded position at rest.
       trajectory_timeout_ms: 20.0
@@ -197,7 +237,7 @@
     # is actually commanded. If the controller falls back to the PD term there
     # is no gravity in the command to remove.
     gravity:
-      source: "estimate"
+      source: "urdf_kdl"
       # Earth gravity for 'urdf_kdl'. -9.8, not -9.81: that is the value
       # hard-coded in franka_ign_ros2_control, and matching it is the whole
       # point of this source.

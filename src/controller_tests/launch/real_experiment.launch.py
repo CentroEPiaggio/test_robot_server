@@ -30,12 +30,14 @@ from ament_index_python.packages import get_package_share_directory
 from launch import LaunchContext, LaunchDescription
 from launch.actions import (
     DeclareLaunchArgument,
+    EmitEvent,
     IncludeLaunchDescription,
     OpaqueFunction,
     RegisterEventHandler,
     TimerAction,
 )
 from launch.event_handlers import OnProcessExit
+from launch.events import Shutdown
 from launch.launch_description_sources import PythonLaunchDescriptionSource
 from launch.substitutions import LaunchConfiguration
 
@@ -74,18 +76,26 @@ def experiment_chain(context: LaunchContext):
         LaunchConfiguration('initial_scale'))
     mact = controller_spawner(
         controller, arm_id, use_sim_time=False,
-        initial_scale=float(initial_scale) if initial_scale else None)
+        initial_scale=float(initial_scale) if initial_scale.strip() != '' else None)
+
+    trajectory = trajectory_node(arm_id, use_sim_time=False)
 
     after_controller = []
     if record:
         after_controller.append(bag_recorder(controller, environment='real'))
-    after_controller.append(
-        TimerAction(period=2.0, actions=[trajectory_node(arm_id, use_sim_time=False)]))
+    after_controller.append(TimerAction(period=2.0, actions=[trajectory]))
 
     actions += [
         mact,
         RegisterEventHandler(
             event_handler=OnProcessExit(target_action=mact, on_exit=after_controller)),
+        # As in simulation: when the generator is done the run is over, so stop
+        # the recorder and the bring-up rather than leaving the robot holding
+        # the centre pose under an active controller indefinitely.
+        RegisterEventHandler(
+            event_handler=OnProcessExit(
+                target_action=trajectory,
+                on_exit=[EmitEvent(event=Shutdown(reason='trajectory finished'))])),
     ]
     return actions
 

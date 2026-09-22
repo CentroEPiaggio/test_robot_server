@@ -10,6 +10,7 @@
 #include <rclcpp/rclcpp.hpp>
 #include <mact_msgs/msg/mact_state.hpp>
 #include <sensor_msgs/msg/joint_state.hpp>
+#include <std_srvs/srv/set_bool.hpp>
 #include <trajectory_msgs/msg/joint_trajectory_point.hpp>
 
 #include "controller_tests/lissajous_trajectory.hpp"
@@ -39,6 +40,14 @@ namespace controller_tests {
  * points of the parameter convergence by the time the Lissajous begins. The
  * handshake removes that variability, and it is why time_from_start is a
  * trustworthy origin for the analysis.
+ *
+ * The node also owns *when the controller adapts*. It knows what phase the
+ * motion is in; the controller does not, and should not have to guess it from
+ * the shape of the reference it is handed. So the update law is switched on
+ * with a std_srvs/SetBool call at the phase boundary named by
+ * `adaptation_start_phase`, and switched off again when the motion is over, so
+ * that the estimate recorded at the end of a run is the one the excited part
+ * of the trajectory produced and not one that drifted through the final hold.
  */
 class TrajectoryPublisherNode : public rclcpp::Node
 {
@@ -74,6 +83,10 @@ public:
             controller_ready_ = true;
           }
         });
+    }
+
+    if (!adaptation_service_.empty()) {
+      adaptation_client_ = create_client<std_srvs::srv::SetBool>(adaptation_service_);
     }
 
     const auto period = rclcpp::Duration::from_seconds(1.0 / publish_rate_hz_);
@@ -114,6 +127,17 @@ private:
 
     declare_parameter<bool>("stop_when_finished", false);
     declare_parameter<double>("hold_duration", 2.0);
+
+    // The controller's parameter update law is switched from here, because
+    // this node is the one that knows what phase the motion is in. Empty
+    // 'adaptation_service' disables the whole mechanism, leaving the
+    // controller on whatever 'adaptation.enabled' gave it.
+    declare_parameter<std::string>("adaptation_service", "/mact_controller/set_adaptation");
+    // Which boundary turns it on: 'lissajous' (the excited part of the motion,
+    // the default) or 'approach' (from the first sample of the approach).
+    declare_parameter<std::string>("adaptation_start_phase", "lissajous");
+    // Turn it off again when the Lissajous ends and the centre pose is held.
+    declare_parameter<bool>("adaptation_stop_at_hold", true);
   }
 
   /// Read a parameter that must contain exactly kNumJoints values.
@@ -170,6 +194,16 @@ private:
     handshake_timeout_s_ = get_parameter("handshake_timeout_s").as_double();
     stop_when_finished_ = get_parameter("stop_when_finished").as_bool();
     hold_duration_ = get_parameter("hold_duration").as_double();
+
+    adaptation_service_ = get_parameter("adaptation_service").as_string();
+    adaptation_start_phase_ = get_parameter("adaptation_start_phase").as_string();
+    adaptation_stop_at_hold_ = get_parameter("adaptation_stop_at_hold").as_bool();
+    if (adaptation_start_phase_ != "lissajous" && adaptation_start_phase_ != "approach") {
+      RCLCPP_FATAL(
+        get_logger(), "'adaptation_start_phase' is '%s'; expected 'lissajous' or 'approach'",
+        adaptation_start_phase_.c_str());
+      return false;
+    }
 
     if (configuration_.ramp_duration * 2.0 > configuration_.run_duration) {
       RCLCPP_FATAL(
@@ -342,14 +376,51 @@ private:
     switch (phase) {
       case LissajousTrajectory::Phase::kApproach:
         RCLCPP_INFO(get_logger(), "[%.2f s] approach", elapsed);
+        if (adaptation_start_phase_ == "approach") {
+          setAdaptation(true, elapsed);
+        }
         break;
       case LissajousTrajectory::Phase::kLissajous:
         RCLCPP_INFO(get_logger(), "[%.2f s] Lissajous", elapsed);
+        if (adaptation_start_phase_ == "lissajous") {
+          setAdaptation(true, elapsed);
+        }
         break;
       case LissajousTrajectory::Phase::kHold:
         RCLCPP_INFO(get_logger(), "[%.2f s] holding the centre pose", elapsed);
+        if (adaptation_stop_at_hold_) {
+          setAdaptation(false, elapsed);
+        }
         break;
     }
+  }
+
+  /**
+   * @brief Tell the controller whether to integrate the update law.
+   *
+   * Fire-and-forget: the request goes out asynchronously and the reply is
+   * dropped, because this runs on the 1 kHz publishing timer and must never
+   * block it. A controller that is not there is a warning, not a failure --
+   * the trajectory is still worth publishing, it just runs without adaptation.
+   */
+  void setAdaptation(bool enabled, double elapsed)
+  {
+    if (!adaptation_client_) {
+      return;
+    }
+    if (!adaptation_client_->service_is_ready()) {
+      RCLCPP_WARN(
+        get_logger(),
+        "[%.2f s] '%s' is not available; leaving the update law as the controller "
+        "configured it", elapsed, adaptation_service_.c_str());
+      return;
+    }
+    auto request = std::make_shared<std_srvs::srv::SetBool::Request>();
+    request->data = enabled;
+    adaptation_client_->async_send_request(request);
+    RCLCPP_INFO(
+      get_logger(), "[%.2f s] adaptation %s via '%s'", elapsed,
+      enabled ? "enabled" : "disabled", adaptation_service_.c_str());
   }
 
   // ------------------------------------------------------------ parameters --
@@ -376,9 +447,14 @@ private:
   bool wait_for_controller_{true};
   double handshake_timeout_s_{30.0};
 
+  std::string adaptation_service_;
+  std::string adaptation_start_phase_{"lissajous"};
+  bool adaptation_stop_at_hold_{true};
+
   rclcpp::Publisher<trajectory_msgs::msg::JointTrajectoryPoint>::SharedPtr publisher_;
   rclcpp::Subscription<sensor_msgs::msg::JointState>::SharedPtr joint_state_subscription_;
   rclcpp::Subscription<mact_msgs::msg::MactState>::SharedPtr controller_state_subscription_;
+  rclcpp::Client<std_srvs::srv::SetBool>::SharedPtr adaptation_client_;
   rclcpp::TimerBase::SharedPtr timer_;
 };
 

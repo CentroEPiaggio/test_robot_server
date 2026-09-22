@@ -13,6 +13,7 @@ find_package(ament_cmake REQUIRED)
 find_package(rclcpp REQUIRED)
 find_package(mact_msgs REQUIRED)
 find_package(sensor_msgs REQUIRED)
+find_package(std_srvs REQUIRED)
 find_package(trajectory_msgs REQUIRED)
 find_package(Eigen3 REQUIRED)
 
@@ -27,7 +28,7 @@ target_link_libraries(lissajous_trajectory PUBLIC Eigen3::Eigen)
 add_executable(trajectory_publisher_node src/trajectory_publisher_node.cpp)
 target_link_libraries(trajectory_publisher_node lissajous_trajectory)
 ament_target_dependencies(trajectory_publisher_node
-  rclcpp mact_msgs sensor_msgs trajectory_msgs)
+  rclcpp mact_msgs sensor_msgs std_srvs trajectory_msgs)
 
 install(TARGETS lissajous_trajectory
   ARCHIVE DESTINATION lib LIBRARY DESTINATION lib RUNTIME DESTINATION bin)

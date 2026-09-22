@@ -3,6 +3,8 @@
 
 #pragma once
 
+#include <string>
+
 #include <Eigen/Core>
 #include <rclcpp/time.hpp>
 
@@ -13,6 +15,42 @@ constexpr int kNumJoints = 7;
 using Vector7d = Eigen::Matrix<double, kNumJoints, 1>;
 /// A regressor: 7 rows, one column per dynamic parameter (100 for the Franka).
 using RegressorMatrix = Eigen::Matrix<double, kNumJoints, Eigen::Dynamic>;
+
+/**
+ * @brief Which torque the prediction error term of eq. (2) compares against.
+ *
+ * The term is gamma * Y^T * R_t * (tau - Y*pi_hat), and the tau it refers to
+ * is the torque the robot *applied*. Two things can play that role:
+ *
+ *  - kMeasured: the effort state interface. On the real robot this is the
+ *               link-side torque sensor, in Gazebo the transmitted joint
+ *               wrench; either way it is an independent measurement of the
+ *               rigid-body dynamics and it is what eq. (2) actually means.
+ *               Joint friction is internal to the actuator and does not appear
+ *               in it, so it is not fitted into the inertial parameters, and
+ *               neither saturation nor a gravity source that does not match the
+ *               hardware's can bias the estimate.
+ *  - kModel:    tau_model, the control law of the previous cycle. This is only
+ *               equal to the applied torque when the subtracted gravity matches
+ *               the one the hardware adds back, nothing saturated, and the
+ *               joints are frictionless. Measured in Gazebo on the Lissajous,
+ *               the residual against tau_model is about twice the one against
+ *               the measurement, the difference being the 0.2 Nm of Coulomb
+ *               friction the FR3 URDF gives every joint. Kept because it is
+ *               what the published runs used.
+ */
+enum class AdaptationTorqueSource
+{
+  kMeasured,
+  kModel,
+};
+
+/// Parse the `adaptation.torque_source` parameter; false on an unknown name.
+bool adaptationTorqueSourceFromString(
+  const std::string & name, AdaptationTorqueSource & source);
+
+/// Name of a source, as it is written in the configuration.
+const char * toString(AdaptationTorqueSource source);
 
 /**
  * @brief One desired-trajectory sample, as received from the reference topic.

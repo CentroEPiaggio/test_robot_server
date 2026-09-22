@@ -25,11 +25,13 @@ float64[7] e            # q_d - q
 float64[7] de           # dq_d - dq
 
 # ----------------------------------------------------------------- torques --
-# tau_model is the full control law of eq. (1)/(3), gravity included; it is the
-# torque the robot actually applies and therefore the tau used in the parameter
-# update law. tau_cmd is what was written to the effort command interface: it
-# equals tau_model in simulation, and tau_model - G_hat on the real robot,
-# where libfranka compensates gravity internally.
+# tau_model is the full control law of eq. (1)/(3), gravity included. tau_cmd is
+# what was written to the effort command interface: it equals tau_model when no
+# gravity is subtracted, and tau_model - G otherwise, since both libfranka and
+# the Gazebo plugin add their own gravity compensation on top of the command.
+# tau_meas is the effort state interface, i.e. the torque the robot actually
+# applied; it is what the update law compares against by default
+# ('adaptation.torque_source').
 float64[7] tau_model
 float64[7] tau_cmd
 float64[7] tau_meas     # effort state interface
@@ -54,6 +56,12 @@ bool    model_valid       # a usable regressor was available this cycle
 float64 model_age_ms      # age of the newest Yr; always 0.0 in-process
 uint32  degraded_cycles   # cycles spent in PD-only fallback since activation
 bool    trajectory_valid  # a fresh desired trajectory was available
+
+# Whether the parameter update law was integrating this cycle. The controller
+# does not decide this: it starts at 'adaptation.enabled' and is switched by
+# whoever owns the motion through the SetBool service, so the bag has to record
+# it for the parameter trajectory to be interpretable.
+bool    adaptation_enabled
 
 # Phase of the motion, as the trajectory generator itself reports it in
 # JointTrajectoryPoint.time_from_start: 0 at the start of the approach and

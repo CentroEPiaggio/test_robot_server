@@ -81,6 +81,11 @@ CallbackReturn MactControllerBase::on_init()
 
     auto_declare<int>("num_parameters", 100);
     auto_declare<bool>("adaptation.enabled", true);
+    // Whether the update law integrates is decided from the outside, by
+    // whoever owns the motion; this is only the value it starts from.
+    auto_declare<std::string>("adaptation.service", "~/set_adaptation");
+    // Which torque the prediction error compares against: measured | model.
+    auto_declare<std::string>("adaptation.torque_source", "measured");
     auto_declare<double>("adaptation.gamma", 0.0);
     auto_declare<std::vector<double>>("adaptation.R_t", {});
     auto_declare<std::vector<double>>("adaptation.R_p_link", {});
@@ -167,7 +172,16 @@ CallbackReturn MactControllerBase::on_configure(const rclcpp_lifecycle::State & 
     get_node()->get_parameter("filters.ddq_cutoff_hz").as_double());
 
   num_parameters_ = static_cast<int>(get_node()->get_parameter("num_parameters").as_int());
-  adaptation_enabled_ = get_node()->get_parameter("adaptation.enabled").as_bool();
+  adaptation_enabled_default_ = get_node()->get_parameter("adaptation.enabled").as_bool();
+  adaptation_enabled_.store(adaptation_enabled_default_, std::memory_order_relaxed);
+
+  const auto torque_name = get_node()->get_parameter("adaptation.torque_source").as_string();
+  if (!adaptationTorqueSourceFromString(torque_name, adaptation_torque_source_)) {
+    RCLCPP_FATAL(
+      logger, "'adaptation.torque_source' is '%s'; expected 'measured' or 'model'",
+      torque_name.c_str());
+    return CallbackReturn::FAILURE;
+  }
 
   std::string adaptation_error;
   if (!adaptation_.configure(
@@ -239,6 +253,20 @@ CallbackReturn MactControllerBase::on_configure(const rclcpp_lifecycle::State & 
       trajectoryCallback(message);
     });
 
+  // ---------------------------------------------------- adaptation switch --
+  // The controller does not decide when estimating is meaningful; it is told.
+  const auto adaptation_service = get_node()->get_parameter("adaptation.service").as_string();
+  // on_configure() can run again after a cleanup, and the name is still taken
+  // until the old service is destroyed: release it before asking for it again.
+  adaptation_service_.reset();
+  adaptation_service_ = get_node()->create_service<std_srvs::srv::SetBool>(
+    adaptation_service,
+    [this](
+      const std_srvs::srv::SetBool::Request::SharedPtr request,
+      std_srvs::srv::SetBool::Response::SharedPtr response) {
+      setAdaptationCallback(request, response);
+    });
+
   // --------------------------------------------------------- diagnostics --
   publish_every_n_cycles_ =
     static_cast<int>(get_node()->get_parameter("diagnostics.publish_every_n_cycles").as_int());
@@ -267,11 +295,13 @@ CallbackReturn MactControllerBase::on_configure(const rclcpp_lifecycle::State & 
   initial_estimate_ *= scale;
   RCLCPP_INFO(
     logger,
-    "MACT configured: %d parameters, adaptation %s, prediction error term %s, "
-    "gravity source '%s', initial estimate scaled by %.3f",
-    num_parameters_, adaptation_enabled_ ? "on" : "off",
+    "MACT configured: %d parameters, adaptation starts %s (toggle on '%s'), "
+    "prediction error term %s against the %s torque, gravity source '%s', "
+    "initial estimate scaled by %.3f",
+    num_parameters_, adaptation_enabled_default_ ? "on" : "off",
+    adaptation_service_->get_service_name(),
     adaptation_.usesPredictionError() ? "on" : "off",
-    toString(gravity_source_), scale);
+    toString(adaptation_torque_source_), toString(gravity_source_), scale);
 
   return CallbackReturn::SUCCESS;
 }
@@ -295,10 +325,13 @@ CallbackReturn MactControllerBase::on_activate(const rclcpp_lifecycle::State & /
   tau_model_.setZero();
   tau_model_previous_.setZero();
   tau_command_.setZero();
+  reference_fresh_ = false;
   terms_.invalidate();
   model_valid_ = false;
 
-  adaptation_started_ = false;
+  // Every activation starts from the configured value, so that a run is not
+  // silently affected by a service call made during the previous one.
+  adaptation_enabled_.store(adaptation_enabled_default_, std::memory_order_relaxed);
   trajectory_time_ = 0.0;
   degraded_cycles_ = 0;
   cycles_in_window_ = 0;
@@ -341,9 +374,15 @@ controller_interface::return_type MactControllerBase::update(
   motion.ddq = estimator_.ddq();
 
   const TrajectorySample & reference = *trajectory_buffer_.readFromRT();
+  // A non-positive timeout means "never stale", which is the only reading that
+  // does not turn a configuration typo into a controller that silently ignores
+  // every reference it is given.
   const bool reference_fresh =
-    reference.valid && trajectory_timeout_s_ > 0.0 &&
-    (time - reference.stamp).seconds() <= trajectory_timeout_s_;
+    reference.valid &&
+    (trajectory_timeout_s_ <= 0.0 ||
+    (time - reference.stamp).seconds() <= trajectory_timeout_s_);
+
+  reference_fresh_ = reference_fresh;
 
   if (reference_fresh) {
     motion.q_d = reference.q_d;
@@ -410,27 +449,26 @@ controller_interface::return_type MactControllerBase::update(
   }
 
   // ------------------------------------------------------------ adaptation --
-  // Uses the torque applied in the *previous* cycle, which is the one the
-  // prediction error of eq. (2) refers to.
+  // Whether this runs at all is decided outside the controller, through the
+  // SetBool service: the generator owns the motion and therefore knows when
+  // estimating is meaningful. Nothing here infers it from the reference.
   //
-  // Adaptation starts with the first reference and then stays on for the rest
-  // of the activation, including if the reference later goes stale. There is
-  // nothing wrong with estimating before a trajectory is being tracked; it is
-  // simply that the controller is activated some time before the generator
-  // starts publishing, and that interval is not the same from one launch to
-  // the next, so a run would begin with an estimate that has already drifted
-  // by an arbitrary amount.
-  // Latch on the motion actually starting, not merely on a reference being
-  // present: the generator holds the start pose while it waits for this
-  // controller to be connected, and that wait is not the same length in every
-  // run. time_from_start is zero throughout that hold; the velocity test
-  // covers a generator that does not fill it in.
-  adaptation_started_ = adaptation_started_ ||
-    (reference_fresh &&
-    (reference.time_from_start > 0.0 || reference.dq_d.cwiseAbs().maxCoeff() > 0.0));
-  if (adaptation_enabled_ && adaptation_started_ && model_valid_) {
+  // The prediction error of eq. (2) needs the torque the robot *applied*, and
+  // the two candidates are not interchangeable. tau_measured_ is the effort
+  // state interface, sampled at the top of this very cycle, and it is an
+  // independent measurement of the rigid-body dynamics. tau_model_previous_ is
+  // the control law of the previous cycle, which is what the robot was asked
+  // for -- equal to what it applied only if the subtracted gravity matched the
+  // one the hardware added back, nothing saturated, and the joints have no
+  // friction. Either way the pairing with Y(q, dq, ddq) is deliberate: ddq is
+  // differentiated between the previous sample and this one, so it is the
+  // acceleration the previous cycle's torque produced.
+  const Vector7d & adaptation_torque =
+    adaptation_torque_source_ == AdaptationTorqueSource::kMeasured ?
+    tau_measured_ : tau_model_previous_;
+  if (adaptation_enabled_.load(std::memory_order_relaxed) && model_valid_) {
     adaptation_.update(
-      terms_.regressor_r, error_rate, terms_.regressor, tau_model_previous_,
+      terms_.regressor_r, error_rate, terms_.regressor, adaptation_torque,
       terms_.has_regressor, dt);
   }
 
@@ -592,6 +630,20 @@ void MactControllerBase::trajectoryCallback(
   trajectory_buffer_.writeFromNonRT(sample);
 }
 
+void MactControllerBase::setAdaptationCallback(
+  const std_srvs::srv::SetBool::Request::SharedPtr request,
+  std_srvs::srv::SetBool::Response::SharedPtr response)
+{
+  const bool previous = adaptation_enabled_.exchange(request->data, std::memory_order_relaxed);
+  response->success = true;
+  response->message = request->data ? "adaptation enabled" : "adaptation disabled";
+  if (previous != request->data) {
+    RCLCPP_INFO(
+      get_node()->get_logger(), "Parameter update law %s",
+      request->data ? "enabled" : "frozen");
+  }
+}
+
 void MactControllerBase::publishDiagnostics(const rclcpp::Time & time, const MotionSample & motion)
 {
   if (state_publisher_ && state_publisher_->trylock()) {
@@ -625,8 +677,9 @@ void MactControllerBase::publishDiagnostics(const rclcpp::Time & time, const Mot
     message.model_valid = model_valid_;
     message.model_age_ms = terms_.age_ms;
     message.degraded_cycles = degraded_cycles_;
-    message.trajectory_valid = trajectory_buffer_.readFromRT()->valid;
+    message.trajectory_valid = reference_fresh_;
     message.trajectory_time = trajectory_time_;
+    message.adaptation_enabled = adaptation_enabled_.load(std::memory_order_relaxed);
 
     state_publisher_->unlockAndPublish();
   }
