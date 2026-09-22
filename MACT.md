@@ -138,29 +138,63 @@ why the figure plots the residual.
 ## Figures
 
 ```bash
-ros2 launch controller_tests gazebo_experiment.launch.py headless:=true controller:=server initial_scale:=0.3
 ros2 launch controller_tests gazebo_experiment.launch.py headless:=true controller:=local  initial_scale:=0.3
+ros2 launch controller_tests gazebo_experiment.launch.py headless:=true controller:=server initial_scale:=0.3
 ros2 run controller_tests plot_abstract_figure.py --server bags/gazebo_server_* --local bags/gazebo_local_* --output fig2
 ```
 
 produces the two data panels of Fig. 2. The parameter panel plots the torque
 prediction residual `τ_meas − Y·π̂` rather than entries of π̂, because the
 regressor has a null space and many parameter vectors reproduce the same
-dynamics. Starting from a deliberately wrong estimate (`initial_scale:=0.6`)
-is what makes the convergence visible: the residual then falls from about
-8 Nm to 0.6 Nm over the run, with the two controllers indistinguishable
-(rms 1.833 against 1.837 Nm). With π̂(0) at the nominal value there is little
-for the adaptation to do and the residual just sits on the
-unmodelled-friction floor of ~0.2 Nm.
+dynamics. Starting from a deliberately wrong estimate (`initial_scale:=0.3`)
+is what makes the convergence visible: the residual falls from about 13 Nm to
+0.5 Nm over the run, with the two controllers indistinguishable (rms 3.3151
+against 3.3153 Nm, and ‖e‖ 0.14224 against 0.14250 rad).
+
+### The window, and why it starts where it does
 
 The time axis is the trajectory generator's own clock, forwarded by the
 controller into every recorded sample, so nothing has to be inferred from the
-data: 0 is the start of the approach and 5 s the start of the Lissajous. The
-generator holds the start pose until the controller confirms it is receiving,
-which is what keeps that clock meaningful — publishing before discovery
-completes loses part of the approach, by 2.3 s in one run and 0.3 s in another
-of the same launch file, and leaves two runs at different points of the
-parameter convergence.
+data. On that clock `[0, 5)` is the approach, `[5, 35)` the Lissajous and
+`[35, …)` the final hold. **The figure plots `[5, 35)`, shifted so that 0 is
+the start of the Lissajous** — `--t0`/`--t1` default to exactly that.
+
+That window is not a crop for looks. It is the interval in which the
+controller is adapting: the generator enables the update law at 5 s and
+disables it at 35 s, so t = 0 on the figure is also t = 0 of the estimation.
+Including the approach would put a spike at the origin from the initial step
+in q_d, which belongs to neither controller and dominates the y range.
+
+35 and not 30 or 25: the Lissajous really does run the full `run_duration` of
+30 s, the last 2 s of which are the ramp-down. Cutting earlier would drop valid
+data and the plotted window would no longer be the one the estimate was
+produced over. Pass `--t0`/`--t1` on the generator clock to override, or
+`--no-rezero` to keep that clock on the axis.
+
+The generator holds the start pose until the controller confirms it is
+receiving, which is what keeps that clock meaningful — publishing before
+discovery completes loses part of the approach, by 2.3 s in one run and 0.3 s
+in another of the same launch file, and leaves two runs at different points of
+the parameter convergence.
+
+### Layout
+
+The combined figure is **one column wide (3.5 in) with its panels stacked and
+sharing the time axis**, so it drops into a two-column paper as a single float
+without `\includegraphics` scaling — which is what keeps its fonts the same
+size as the body text. Only the bottom panel carries tick labels and the axis
+label; that is where the vertical space comes from.
+
+Text is Computer Modern: a real LaTeX typesets it when `latex` and `dvipng` are
+installed, and matplotlib's own Computer Modern otherwise (the development
+container has no LaTeX). `--usetex` / `--no-usetex` force the choice.
+
+The in-process run is a solid MATLAB-blue line and the server a black dashed
+one drawn on top of it, so that "the two are indistinguishable" is something
+the reader can see through the gaps rather than something the caption asserts.
+`--local-colour`, `--local-style`, `--server-colour` and `--server-style` swap
+them. `--panels` chooses which panels are stacked (default `error,residual_y`);
+all three are written as separate one-column files regardless.
 
 See [`src/controller_tests/README.md`](src/controller_tests/README.md) for the
 details, including why the residual must use the *measured* torque.

@@ -28,7 +28,7 @@ from launch.actions import (
     TimerAction,
 )
 from launch.conditions import IfCondition
-from launch.event_handlers import OnProcessExit
+from launch.event_handlers import OnProcessExit, OnShutdown
 from launch.events import Shutdown
 from launch.launch_description_sources import PythonLaunchDescriptionSource
 from launch.substitutions import LaunchConfiguration, PythonExpression
@@ -38,6 +38,7 @@ sys.path.append(os.path.dirname(__file__))
 from mact_launch_utils import (  # noqa: E402
     bag_recorder,
     controller_spawner,
+    gazebo_reaper,
     joint_state_broadcaster_spawner,
     robot_server_node,
     stale_controller_manager_check,
@@ -223,8 +224,15 @@ def generate_launch_description():
             description='Run Gazebo without its GUI (no display needed).'),
 
         # First, before anything of ours is on the graph: any controller manager
-        # visible at this point belongs to a run that never shut down.
+        # visible at this point belongs to a run that never shut down. It also
+        # takes the snapshot of pre-existing Gazebos that the reaper below
+        # subtracts, so the two have to stay in this order.
         OpaqueFunction(function=stale_controller_manager_check),
+        # Last: ros_gz_sim's simulator is a grandchild of the launch and does
+        # not reliably die with it, so make sure this run leaves nothing that
+        # the next one would collide with.
+        RegisterEventHandler(
+            event_handler=OnShutdown(on_shutdown=[OpaqueFunction(function=gazebo_reaper)])),
 
         gazebo,
         clock_bridge,

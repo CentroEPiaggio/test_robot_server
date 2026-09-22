@@ -2,5 +2,6 @@ build/
 install/
 log/
 bags/
+__pycache__/
 .devcontainer/.env
 .devcontainer/commandhistory/.bash_history

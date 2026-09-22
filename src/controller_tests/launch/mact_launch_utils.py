@@ -10,6 +10,7 @@ trajectory generator, same recorded topics, same parameter files.
 """
 
 import os
+import signal
 import tempfile
 import time
 from datetime import datetime
@@ -54,6 +55,79 @@ SERVER_BAG_TOPICS = [
 ]
 
 
+# Gazebo processes that were already running when this launch started. Anything
+# matching _GAZEBO_PATTERNS that is NOT in here appeared during our own run and
+# is ours to clean up; anything in here belongs to somebody else and is left
+# strictly alone. Populated by stale_controller_manager_check().
+_GAZEBO_PIDS_AT_START = frozenset()
+
+# ros_gz_sim runs Gazebo as `ruby <path>/ign gazebo ...` under `shell=True`, so
+# these are the shell, the ruby launcher and the simulator itself.
+_GAZEBO_PATTERNS = ('ign gazebo', 'gz sim', 'ign-gazebo-server', 'gz-sim-server')
+
+
+def _gazebo_pids():
+    """PIDs of everything that looks like a Gazebo, from /proc."""
+    if not os.path.isdir('/proc'):
+        return set()          # not Linux: the reaper simply does nothing
+    pids = set()
+    for entry in os.listdir('/proc'):
+        if not entry.isdigit():
+            continue
+        try:
+            with open(os.path.join('/proc', entry, 'cmdline'), 'rb') as handle:
+                cmdline = handle.read().replace(b'\0', b' ').decode('utf-8', 'replace')
+        except OSError:
+            continue          # the process went away, or is not ours to read
+        if any(pattern in cmdline for pattern in _GAZEBO_PATTERNS):
+            pids.add(int(entry))
+    return pids
+
+
+def gazebo_reaper(context, *_args, **_kwargs):
+    """
+    Kill the Gazebo this launch started, if it outlived the launch.
+
+    ros_gz_sim starts the simulator through a `ruby` wrapper under `/bin/sh -c`,
+    so the process that actually simulates is a *grandchild* of the launch. The
+    SIGINT and the SIGTERM that launch escalates to go to the shell, and about
+    half the time the simulator survives them -- still holding a
+    `/controller_manager` with the controllers loaded, which is exactly what
+    makes the next run fail to configure them.
+
+    Only PIDs that appeared after stale_controller_manager_check() took its
+    snapshot are touched, so a Gazebo somebody else is running is never at risk.
+    Run as an on_shutdown handler: the graceful path is given its chance first,
+    and this only deals with what is left.
+    """
+    survivors = _gazebo_pids() - _GAZEBO_PIDS_AT_START
+    if not survivors:
+        return []
+
+    # Let the launch's own SIGINT/SIGTERM finish the job if it is going to.
+    for _ in range(40):
+        time.sleep(0.1)
+        survivors = {pid for pid in survivors if os.path.isdir(f'/proc/{pid}')}
+        if not survivors:
+            return []
+
+    for number in (signal.SIGTERM, signal.SIGKILL):
+        for pid in sorted(survivors):
+            try:
+                os.kill(pid, number)
+            except OSError:
+                pass
+        time.sleep(0.5)
+        survivors = {pid for pid in survivors if os.path.isdir(f'/proc/{pid}')}
+        if not survivors:
+            break
+
+    print('[mact] cleaned up Gazebo processes that outlived the launch')
+    if survivors:
+        print(f'[mact] WARNING: these would not die: {sorted(survivors)}')
+    return []
+
+
 def stale_controller_manager_check(context, *_args, **_kwargs):
     """
     Refuse to start while a controller manager from a previous run is alive.
@@ -71,6 +145,11 @@ def stale_controller_manager_check(context, *_args, **_kwargs):
     It never fails the launch on its own account: if the graph cannot be
     inspected at all, the run goes ahead as before.
     """
+    global _GAZEBO_PIDS_AT_START
+    # Before anything of ours starts: whatever Gazebo is running now is not
+    # ours, and gazebo_reaper() must never touch it.
+    _GAZEBO_PIDS_AT_START = frozenset(_gazebo_pids())
+
     try:
         import rclpy
     except ImportError:
