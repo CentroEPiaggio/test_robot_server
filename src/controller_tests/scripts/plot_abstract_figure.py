@@ -91,17 +91,18 @@ from thunder_ctypes import ThunderModel  # noqa: E402
 MATLAB_BLUE = '#0072BD'
 MATLAB_RED = '#D95319'
 
-# One column of a two-column page (IEEE, A4 or letter) is about 3.5 in. The
-# figure is built to that width so it needs no \includegraphics scaling, which
-# is what keeps the font sizes here equal to the ones in the body text.
-COLUMN_WIDTH_IN = 3.5
-# Height of ONE panel. Two stacked panels plus the shared axis come to roughly
-# 2 * PANEL_HEIGHT_IN, which is a comfortable third of a column.
-PANEL_HEIGHT_IN = 1.30
+# Both columns of a two-column page (IEEE) are 7.16 in across. The figure is
+# built to that width so it needs no \includegraphics scaling, which is what
+# keeps the font sizes here equal to the ones in the body text. Use --width 3.5
+# for a single-column float.
+TEXT_WIDTH_IN = 3.5 #7.16
+# Height of ONE row of panels.
+ROW_HEIGHT_IN = 1.3 #2.0
 
-# Motion-clock instants of the phase boundaries, with the shipped lissajous.yaml.
+# Motion-clock instants of the phase boundaries, used only when a bag is too
+# old to carry the adaptation flag; see adaptation_window().
 LISSAJOUS_START_S = 5.0
-LISSAJOUS_END_S = 35.0
+LISSAJOUS_END_S = 20.0
 
 
 def default_library():
@@ -183,65 +184,106 @@ def motion_clock(messages, time, dq_d, logger=print):
     return time - time[0]
 
 
-def load_run(bag, model, torque, t0, t1, rezero=False):
-    """Read a run and compute everything the figure needs."""
+def read_run(bag):
+    """Read one bag into plain arrays, on the generator's motion clock."""
     messages = read_state(bag)
     if not messages:
         raise SystemExit(f'{bag}: no samples on /mact/state')
 
-    time = np.array(
+    stamps = np.array(
         [m.header.stamp.sec + 1e-9 * m.header.stamp.nanosec for m in messages])
-    q = np.array([m.q for m in messages])
-    dq = np.array([m.dq for m in messages])
-    ddq = np.array([m.ddq for m in messages])
     dq_d = np.array([m.dq_d for m in messages])
-    ddq_d = np.array([m.ddq_d for m in messages])
-    error = np.array([m.e for m in messages])
-    estimate = np.array([m.pi_hat for m in messages])
-    tau_meas = np.array([m.tau_meas for m in messages])
-    tau_model = np.array([m.tau_model for m in messages])
 
-    time = motion_clock(messages, time, dq_d)
+    return {
+        'name': os.path.basename(os.path.normpath(bag)),
+        'time': motion_clock(messages, stamps, dq_d),
+        'q': np.array([m.q for m in messages]),
+        'dq': np.array([m.dq for m in messages]),
+        'ddq': np.array([m.ddq for m in messages]),
+        'dq_d': dq_d,
+        'ddq_d': np.array([m.ddq_d for m in messages]),
+        'e': np.array([m.e for m in messages]),
+        'de': np.array([m.de for m in messages]),
+        'pi': np.array([m.pi_hat for m in messages]),
+        'tau_meas': np.array([m.tau_meas for m in messages]),
+        'tau_model': np.array([m.tau_model for m in messages]),
+        'adapting': np.array(
+            [bool(getattr(m, 'adaptation_enabled', False)) for m in messages]),
+    }
+
+
+def adaptation_window(raw):
+    """
+    The interval in which the controller was adapting, on the motion clock.
+
+    This is the window worth plotting, and the bag states it rather than
+    leaving it to be assumed: the generator switches the update law on at the
+    start of the Lissajous and off again when it ends, and the controller
+    records the flag in every sample. Reading it back means the figure follows
+    `run_duration` automatically -- shorten the trajectory and the axis
+    shortens with it, with nothing to keep in step by hand.
+
+    The bounds are rounded to a tenth of a second. The diagnostics are
+    published every tenth control cycle, so the flag is only ever observed to
+    within 10 ms of the instant the service call landed, and 5.008 to 19.998 is
+    a 14.99 s axis on which the locator will not put a tick at 15. The true
+    boundaries are whole multiples of the configured phase durations, so
+    rounding recovers them rather than inventing them.
+
+    None when the bag predates the flag; the caller then falls back to the
+    phase durations of the shipped configuration.
+    """
+    adapting = np.flatnonzero(raw['adapting'])
+    if adapting.size == 0:
+        return None
+    return (round(float(raw['time'][adapting[0]]), 1),
+            round(float(raw['time'][adapting[-1]]), 1))
+
+
+def window_run(raw, model, torque, t0, t1, rezero=True):
+    """Cut a run down to [t0, t1] and compute everything the figure needs."""
+    time = raw['time']
 
     # Everything recorded while the generator was holding the start pose
     # carries a clock of exactly 0, so those samples would all pile up on the
-    # left edge of the plot and skew the summary. Keep only the motion, plus
-    # the last held sample so the curve starts at t = 0.
+    # left edge of the plot and skew the summary.
     held = np.flatnonzero(time <= 0.0)
     first = held[-1] if held.size else 0
 
     window = (time >= t0) & (time <= t1)
     window[:first] = False
     if not window.any():
-        raise SystemExit(f'{bag}: no samples in [{t0}, {t1}] s')
+        raise SystemExit(f"{raw['name']}: no samples in [{t0}, {t1}] s")
     if rezero:
-        # Put t = 0 at the start of the window, e.g. to plot the Lissajous
-        # alone with --t0 5 --rezero.
         time = time - t0
 
-    reference_torque = tau_meas if torque == 'measured' else tau_model
+    reference_torque = raw['tau_meas'] if torque == 'measured' else raw['tau_model']
+    indices = np.flatnonzero(window)
 
-    residual_y = np.empty((int(window.sum()), q.shape[1]))
+    residual_y = np.empty((indices.size, raw['q'].shape[1]))
     residual_yr = np.empty_like(residual_y)
-    for out_index, index in enumerate(np.flatnonzero(window)):
-        pi = estimate[index]
+    for out_index, index in enumerate(indices):
+        pi = raw['pi'][index]
         residual_y[out_index] = (
-            reference_torque[index] - model.regressor(q[index], dq[index], ddq[index]) @ pi)
+            reference_torque[index]
+            - model.regressor(raw['q'][index], raw['dq'][index], raw['ddq'][index]) @ pi)
         residual_yr[out_index] = (
-            reference_torque[index] -
-            model.regressor_r(q[index], dq[index], dq_d[index], ddq_d[index]) @ pi)
+            reference_torque[index]
+            - model.regressor_r(
+                raw['q'][index], raw['dq'][index],
+                raw['dq_d'][index], raw['ddq_d'][index]) @ pi)
 
     return {
-        'name': os.path.basename(os.path.normpath(bag)),
+        'name': raw['name'],
         'time': time[window],
-        'error_norm': np.linalg.norm(error[window], axis=1),
+        'error_norm': np.linalg.norm(raw['e'][window], axis=1),
         'residual_y': np.linalg.norm(residual_y, axis=1),
         'residual_yr': np.linalg.norm(residual_yr, axis=1),
         # Kept for the self-check below.
-        '_q': q[window], '_dq': dq[window], '_dq_d': dq_d[window],
-        '_ddq_d': ddq_d[window], '_pi': estimate[window],
-        '_tau_model': tau_model[window], '_e': error[window],
-        '_de': np.array([m.de for m in messages])[window],
+        '_q': raw['q'][window], '_dq': raw['dq'][window], '_dq_d': raw['dq_d'][window],
+        '_ddq_d': raw['ddq_d'][window], '_pi': raw['pi'][window],
+        '_tau_model': raw['tau_model'][window], '_e': raw['e'][window],
+        '_de': raw['de'][window],
     }
 
 
@@ -301,6 +343,7 @@ def apply_style(usetex):
         'font.size': 8,
         'axes.labelsize': 8,
         'axes.titlesize': 8,
+        'axes.labelpad': 2.0,    # default 4.0
         'legend.fontsize': 7,
         'xtick.labelsize': 7,
         'ytick.labelsize': 7,
@@ -372,13 +415,13 @@ def main():
     parser.add_argument('--local', required=True, help='bag of the in-process run')
     parser.add_argument('--output', default='fig2', help='output basename (no extension)')
     parser.add_argument(
-        '--t0', type=float, default=LISSAJOUS_START_S,
-        help='window start on the generator clock [s]; the default 5 is the start of '
-             'the Lissajous, and of the adaptation')
+        '--t0', type=float, default=None,
+        help='window start on the generator clock [s]; by default the instant the '
+             'controller started adapting, read from the bag')
     parser.add_argument(
-        '--t1', type=float, default=LISSAJOUS_END_S,
-        help='window end on the generator clock [s]; the default 35 is the end of the '
-             'Lissajous, and of the adaptation')
+        '--t1', type=float, default=None,
+        help='window end on the generator clock [s]; by default the instant the '
+             'controller stopped adapting, read from the bag')
     parser.add_argument(
         '--no-rezero', action='store_true',
         help='keep the generator clock on the axis instead of putting 0 at --t0')
@@ -394,29 +437,43 @@ def main():
         '--server-label', default='server', help='legend entry for the server run')
     parser.add_argument(
         '--local-label', default='in-process', help='legend entry for the linked run')
-    # Solid blue underneath, black dashed on top: swap the four options below
-    # to reverse which run is which.
+    # A thick blue line with a thin black dashed one on top of it: the wide
+    # curve underneath stays visible through the gaps of the narrow one, which
+    # is what makes the two agreeing something the reader sees rather than
+    # something the caption claims. Every attribute is an option, so the roles
+    # can be swapped without touching the code.
     parser.add_argument(
-        '--local-colour', default=MATLAB_BLUE, help='colour of the in-process curve')
+        '--server-colour', default=MATLAB_BLUE, help='colour of the server curve')
     parser.add_argument(
-        '--local-style', default='-', help='line style of the in-process curve')
+        '--server-style', default='-', help='line style of the server curve')
     parser.add_argument(
-        '--server-colour', default='black', help='colour of the server curve')
+        '--server-width', type=float, default=2.0,
+        help='line width of the server curve [pt]')
     parser.add_argument(
-        '--server-style', default=(0, (4.0, 2.2)),
-        help="line style of the server curve; '--' or a dash pattern")
+        '--local-colour', default='black', help='colour of the in-process curve')
+    parser.add_argument(
+        '--local-style', default=(0, (4.0, 2.4)),
+        help="line style of the in-process curve; '--' or a dash pattern")
+    parser.add_argument(
+        '--local-width', type=float, default=1.0,
+        help='line width of the in-process curve [pt]')
     parser.add_argument(
         '--panels', default='error,residual_y',
-        help='panels of the stacked figure, in order, comma separated: '
+        help='panels of the combined figure, in order, comma separated: '
              'error, residual_y, residual_yr')
     parser.add_argument(
-        '--xlabel', default=r'$t$  [s]', help='label of the shared time axis')
+        '--layout', choices=('row', 'column'), default='row',
+        help="'row' puts the panels side by side (default), 'column' stacks them "
+             'and shares the time axis')
     parser.add_argument(
-        '--width', type=float, default=COLUMN_WIDTH_IN,
-        help='figure width [in]; the default is one column of a two-column page')
+        '--xlabel', default=r'$t$  [s]', help='label of the time axis')
     parser.add_argument(
-        '--height', type=float, default=PANEL_HEIGHT_IN,
-        help='height of ONE panel [in]; the stacked figure is a multiple of it')
+        '--width', type=float, default=TEXT_WIDTH_IN,
+        help='TOTAL figure width [in]; the default spans both columns of a '
+             'two-column page. Use 3.5 for a single-column float.')
+    parser.add_argument(
+        '--height', type=float, default=ROW_HEIGHT_IN,
+        help='height of one ROW of panels [in]')
     parser.add_argument(
         '--usetex', dest='usetex', action='store_true', default=None,
         help='typeset the labels with a real LaTeX (needs latex and dvipng)')
@@ -441,14 +498,36 @@ def main():
     model = ThunderModel(arguments.library, arguments.parameter_file)
     print(f'model: {arguments.library}')
 
-    runs = {}
+    raw = {}
     for label, bag in (
             (arguments.server_label, arguments.server),
             (arguments.local_label, arguments.local)):
         print(f'reading {bag} ...')
-        runs[label] = load_run(
-            bag, model, arguments.torque, arguments.t0, arguments.t1,
-            not arguments.no_rezero)
+        raw[label] = read_run(bag)
+
+    # The window: what the bags say the adaptation interval was, unless it was
+    # asked for explicitly. Taking the latest start and the earliest end keeps
+    # both runs fully covered when they differ by a sample or two.
+    windows = [adaptation_window(entry) for entry in raw.values()]
+    if all(window is not None for window in windows):
+        detected = (max(w[0] for w in windows), min(w[1] for w in windows))
+        source = 'from the adaptation flag in the bags'
+    else:
+        detected = (LISSAJOUS_START_S, LISSAJOUS_END_S)
+        source = ('from the shipped lissajous.yaml; these bags predate the '
+                  'adaptation flag, so check they match the run')
+    t0 = arguments.t0 if arguments.t0 is not None else detected[0]
+    t1 = arguments.t1 if arguments.t1 is not None else detected[1]
+    if arguments.t0 is None and arguments.t1 is None:
+        print(f'window: {t0:.3f} to {t1:.3f} s on the generator clock ({source})')
+    else:
+        print(f'window: {t0:.3f} to {t1:.3f} s on the generator clock (asked for)')
+
+    runs = {
+        label: window_run(
+            entry, model, arguments.torque, t0, t1, not arguments.no_rezero)
+        for label, entry in raw.items()
+    }
 
     # The in-process run is the one whose control law can be reproduced
     # exactly, so it validates the whole ctypes path.
@@ -463,11 +542,13 @@ def main():
         verdict = 'OK' if check < 0.1 else 'SUSPECT - check --library and --parameter-file'
         print(f'self-check  max |tau_model - (Yr*pi_hat + PD)| = {check:.3e} Nm  [{verdict}]')
 
-    # zorder 3 over 2: the server's dashed line sits on top of the in-process
-    # solid one, so the overlap is something the reader can see.
+    # zorder 3 over 2: the thin dashed curve goes on top of the thick one, so
+    # the wide line stays visible through its gaps.
     styling = {
-        arguments.local_label: (arguments.local_colour, arguments.local_style, 1.1, 2),
-        arguments.server_label: (arguments.server_colour, arguments.server_style, 1.0, 3),
+        arguments.server_label: (
+            arguments.server_colour, arguments.server_style, arguments.server_width, 2),
+        arguments.local_label: (
+            arguments.local_colour, arguments.local_style, arguments.local_width, 3),
     }
 
     panels = {
@@ -482,42 +563,48 @@ def main():
             f"--panels: unknown panel(s) {', '.join(unknown)}; "
             f"choose from {', '.join(panels)}")
 
-    # Stacked in one column, sharing the time axis: only the bottom panel
-    # carries tick labels and the axis label, which is most of what makes two
-    # panels fit where one and a half would otherwise go.
+    # What the time axis should span, in plot coordinates.
+    xlim = (t0, t1) if arguments.no_rezero else (0.0, t1 - t0)
+
+    # Side by side by default: every panel carries its own time axis, because
+    # they are read left to right and each has to stand on its own. Stacked
+    # (--layout column) they share it instead, and only the bottom one is
+    # labelled, which buys vertical space at the cost of the panels no longer
+    # being independent.
+    stacked = arguments.layout == 'column'
+    rows, columns = (len(wanted), 1) if stacked else (1, len(wanted))
     figure, all_axes = plt.subplots(
-        len(wanted), 1, sharex=True,
-        figsize=(arguments.width, arguments.height * len(wanted)),
+        rows, columns, sharex=stacked,
+        figsize=(arguments.width, arguments.height * rows),
         constrained_layout=True)
     all_axes = np.atleast_1d(all_axes)
-    # What the axis should span, in plot coordinates.
-    xlim = ((arguments.t0, arguments.t1) if arguments.no_rezero
-            else (0.0, arguments.t1 - arguments.t0))
 
     for index, name in enumerate(wanted):
         key, ylabel = panels[name]
-        last = index == len(wanted) - 1
+        labelled = (index == len(wanted) - 1) if stacked else True
         draw(all_axes[index], runs, key, ylabel,
-             arguments.xlabel if last else None, styling, xlim)
+             arguments.xlabel if labelled else None, styling, xlim)
     all_axes[0].legend(frameon=False, loc='upper right', ncol=len(runs))
-    # constrained_layout leaves a little slack between stacked panels; taking
-    # it out is free vertical space in the paper.
-    figure.set_constrained_layout_pads(hspace=0.02, wspace=0.02, h_pad=0.02, w_pad=0.02)
+    figure.set_constrained_layout_pads(hspace=0.02, wspace=0.02, h_pad=0.03, w_pad=0.03)
     figure.savefig(arguments.output + '.pdf')
     if arguments.png:
         figure.savefig(arguments.output + '.png', dpi=300)
     plt.close(figure)
-    print(f'wrote {arguments.output}.pdf  ({len(wanted)} panels stacked, '
-          f'{arguments.width:.2f} x {arguments.height * len(wanted):.2f} in)')
+    print(f'wrote {arguments.output}.pdf  ({len(wanted)} panels in a '
+          f'{"column" if stacked else "row"}, '
+          f'{arguments.width:.2f} x {arguments.height * rows:.2f} in)')
 
     if not arguments.no_separate:
+        # One panel alone gets the width a panel of the combined figure has,
+        # so a single one dropped into the text matches the rest.
+        single_width = arguments.width if stacked else arguments.width / len(wanted)
         for name, (key, ylabel) in panels.items():
             single, axes = plt.subplots(
-                figsize=(arguments.width, arguments.height * 1.25),
+                figsize=(single_width, arguments.height),
                 constrained_layout=True)
             draw(axes, runs, key, ylabel, arguments.xlabel, styling, xlim)
-            axes.legend(frameon=False, loc='upper right', ncol=len(runs))
-            single.set_constrained_layout_pads(h_pad=0.02, w_pad=0.02)
+            axes.legend(frameon=False, loc='upper right', ncol=1)
+            single.set_constrained_layout_pads(h_pad=0.03, w_pad=0.03)
             output = f'{arguments.output}_{name}'
             single.savefig(output + '.pdf')
             if arguments.png:
@@ -525,11 +612,8 @@ def main():
             plt.close(single)
             print(f'wrote {output}.pdf')
 
-    span = 'the Lissajous' if (
-        arguments.t0 == LISSAJOUS_START_S and arguments.t1 == LISSAJOUS_END_S) else 'the window'
-    print(f'\nsummary over {span} '
-          f'({arguments.t0:g} to {arguments.t1:g} s on the generator clock'
-          f'{", plotted from 0" if not arguments.no_rezero else ""}):')
+    print(f'\nsummary over {t0:g} to {t1:g} s on the generator clock'
+          f'{", plotted from 0" if not arguments.no_rezero else ""}:')
     header = f'{"run":24s} {"rms |e|":>10s} {"rms r_Y":>10s} {"rms r_Yr":>10s}'
     print(header)
     for label, run in runs.items():
