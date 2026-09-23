@@ -74,14 +74,15 @@ RUN apt update && apt install -y --no-install-recommends \
     ros-humble-rviz2 \
     ros-humble-xacro \
     ros-humble-ign-ros2-control \
-    ros-humble-rqt-common-plugins
+    ros-humble-rqt-common-plugins \
+    ros-humble-diff-drive-controller
+
 
 # Install Pinocchio and its dependencies
 RUN mkdir -p /etc/apt/keyrings \
     && curl -fsSL http://robotpkg.openrobots.org/packages/debian/robotpkg.asc | sudo tee /etc/apt/keyrings/robotpkg.asc \
     && echo "deb [arch=amd64 signed-by=/etc/apt/keyrings/robotpkg.asc] http://robotpkg.openrobots.org/packages/debian/pub $(lsb_release -cs) robotpkg" | tee /etc/apt/sources.list.d/robotpkg.list \
     && apt update && apt install --no-install-recommends -qqy robotpkg-pinocchio
-
 # Run ldconfig to update the linker cache
 RUN ldconfig
 RUN apt update && apt install --no-install-recommends -qqy \
@@ -90,8 +91,8 @@ RUN apt update && apt install --no-install-recommends -qqy \
 # install libfranka
 RUN git clone --recurse-submodules https://github.com/frankaemika/libfranka.git  /libfranka \
     && cd libfranka \
-    # && git checkout 0.15.0 \
-    # && git submodule update \
+    && git checkout 0.13.2 \
+    && git submodule update \
     && mkdir build \
     && cd build \
     && cmake -DCMAKE_BUILD_TYPE=Release -DCMAKE_PREFIX_PATH=/opt/openrobots/lib/cmake -DBUILD_TESTS=OFF .. \
@@ -169,6 +170,6 @@ RUN sudo chmod +x /entrypoint.sh ; sudo chown ${USER} /entrypoint.sh \
 # Clean image
 RUN sudo apt clean && sudo rm -rf /var/lib/apt/lists/*
 
-ENV COLCON_DEFAULTS_FILE=${PWDR}/.colcon
+# ENV COLCON_DEFAULTS_FILE=${PWDR}/.colcon
 ENTRYPOINT ["/entrypoint.sh"]
 CMD ["bash"]
