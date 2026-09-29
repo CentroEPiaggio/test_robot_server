@@ -28,6 +28,7 @@ RUN apt update && apt install --no-install-recommends -qqy \
     openssh-client \
     libeigen3-dev \
     libpoco-dev \
+    cmake \
     libyaml-cpp-dev \
     liburdfdom-dev \
     libfmt-dev \
@@ -77,6 +78,10 @@ RUN apt update && apt install -y --no-install-recommends \
     ros-humble-rqt-common-plugins \
     ros-humble-diff-drive-controller
 
+# Keep the apt-managed ROS Humble Python stack authoritative. Disabling the
+# user site-packages directory prevents `pip install --user` from injecting a
+# different `rclpy`, `ros2param`, or `numpy` ahead of the system ROS packages.
+ENV PYTHONNOUSERSITE=1
 
 # Install Pinocchio and its dependencies
 RUN mkdir -p /etc/apt/keyrings \
@@ -88,17 +93,22 @@ RUN ldconfig
 RUN apt update && apt install --no-install-recommends -qqy \
     ros-humble-pinocchio
 
-# install libfranka
-RUN git clone --recurse-submodules https://github.com/frankaemika/libfranka.git  /libfranka \
-    && cd libfranka \
-    && git checkout 0.13.2 \
-    && git submodule update \
-    && mkdir build \
-    && cd build \
-    && cmake -DCMAKE_BUILD_TYPE=Release -DCMAKE_PREFIX_PATH=/opt/openrobots/lib/cmake -DBUILD_TESTS=OFF .. \
-    && make \
-    && cpack -G DEB \
-    && sudo dpkg -i libfranka*.deb
+# Make sure CMake can find robotpkg and locally installed packages (pinocchio)
+ENV CMAKE_PREFIX_PATH="/opt/openrobots:/usr/local:${CMAKE_PREFIX_PATH}"
+
+# Build and install libfranka (pinned tag 0.18.2 for server 9) system-wide so the
+# container has a compatible client available even before the workspace
+# is built. If the workspace contains a local libfranka, the post-create
+# script prefers building the workspace copy instead.
+RUN git clone --recurse-submodules https://github.com/frankaemika/libfranka.git /opt/libfranka \
+    && cd /opt/libfranka \
+    && git checkout 0.21.3 \
+    && git submodule update --init --recursive \
+    && mkdir -p build && cd build \
+    && cmake -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTS=OFF -DCMAKE_INSTALL_PREFIX=/usr .. \
+    && make -j$(nproc) \
+    && sudo make install \
+    && cd / && sudo rm -rf /opt/libfranka
 
 # default USER
 ARG MYUID=1000

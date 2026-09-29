@@ -134,11 +134,11 @@
       # pi_hat(0) is the nominal par_REG (queried from the server, or taken
       # from the linked model) multiplied by this factor. Set it away from 1.0
       # to start from a deliberately wrong estimate and watch the convergence.
-      initial_scale: 0.4
+      initial_scale: 1.0
 
     # -------------------------------------------------------------- filters --
     # The hardware gives position and velocity only, so ddq is differentiated
-    # from the raw velocity. Cut-off frequencies in Hz; <= 0 disables a filter.
+    # from theù raw velocity. Cut-off frequencies in Hz; <= 0 disables a filter.
     #
     # ddq only enters the prediction error term of eq. (2), through
     # Y(q, dq, ddq). There, lag is worse than noise: a slow filter shifts the
@@ -237,7 +237,7 @@
     # is actually commanded. If the controller falls back to the PD term there
     # is no gravity in the command to remove.
     gravity:
-      source: "urdf_kdl"
+      source: "franka_model"
       # Earth gravity for 'urdf_kdl'. -9.8, not -9.81: that is the value
       # hard-coded in franka_ign_ros2_control, and matching it is the whole
       # point of this source.

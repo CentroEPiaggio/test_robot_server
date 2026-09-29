@@ -41,6 +41,9 @@
 	// Uncomment to connect as an existing user other than the container default. More info: https://aka.ms/dev-containers-non-root.
 	// "containerUser": "docker"
 
+	// Run the helper script after container creation to build libfranka/workspace
+	// "postCreateCommand": "bash .devcontainer/devcontainer_post_create.sh ${containerWorkspaceFolder}",
+
 	// Execute after start container
 	"postStartCommand": "bash",
 	"overrideCommand": true,	// needed to have interactive behavior

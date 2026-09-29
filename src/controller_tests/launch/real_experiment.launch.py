@@ -5,7 +5,7 @@
 MACT experiment on the real Franka robot.
 
     ros2 launch controller_tests real_experiment.launch.py \
-        controller:=local robot_ip:=172.16.0.3
+        controller:=local robot_ip:=172.16.0.2
 
 The structure mirrors gazebo_experiment.launch.py exactly; only the bring-up
 differs, so a simulation run and an experiment differ in the hardware and
@@ -106,7 +106,7 @@ def generate_launch_description():
             os.path.join(
                 get_package_share_directory('franka_bringup'), 'launch', 'franka.launch.py')),
         launch_arguments={
-            'arm_id': LaunchConfiguration('arm_id'),
+            'robot_type': LaunchConfiguration('arm_id'),
             'robot_ip': LaunchConfiguration('robot_ip'),
             'load_gripper': 'false',
             'use_fake_hardware': LaunchConfiguration('use_fake_hardware'),
@@ -122,7 +122,7 @@ def generate_launch_description():
         DeclareLaunchArgument(
             'arm_id', default_value='fr3', description='Robot model: fr3, fer, fp3.'),
         DeclareLaunchArgument(
-            'robot_ip', default_value='172.16.0.3', description='Address of the robot.'),
+            'robot_ip', default_value='172.16.0.2', description='Address of the robot.'),
         DeclareLaunchArgument(
             'use_fake_hardware', default_value='false',
             description='Run against the mock hardware instead of the robot.'),

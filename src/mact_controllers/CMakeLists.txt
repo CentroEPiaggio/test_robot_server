@@ -64,7 +64,10 @@ ament_target_dependencies(${PROJECT_NAME} PUBLIC ${THIS_PACKAGE_INCLUDE_DEPENDS}
 pluginlib_export_plugin_description_file(controller_interface mact_controllers.xml)
 
 install(DIRECTORY include/ DESTINATION include)
-install(DIRECTORY config launch DESTINATION share/${PROJECT_NAME})
+install(DIRECTORY config DESTINATION share/${PROJECT_NAME})
+if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/launch")
+  install(DIRECTORY launch DESTINATION share/${PROJECT_NAME})
+endif()
 install(
   TARGETS ${PROJECT_NAME}
   EXPORT export_${PROJECT_NAME}
