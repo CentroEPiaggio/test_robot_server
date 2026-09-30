@@ -13,7 +13,7 @@
 #include <franka_server/msg/float32_array.hpp>
 #include <franka_server/srv/get_value.hpp>
 #include <franka_server/srv/set_value.hpp>
-#include <franka_server/thunder_franka.h>
+#include <thunder_franka/thunder_franka.h>
 
 namespace {
 using FloatArray = franka_server::msg::Float32Array;

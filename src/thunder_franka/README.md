@@ -9,14 +9,18 @@ Everything under `src/` and `include/thunder_franka/` is **generated** by
 thunder gen franka_conf.yaml
 ```
 
-and copied here verbatim, together with the identical copy that
-`franka_server` carries. Do not edit it: change `config/franka_conf.yaml` and
-regenerate, then refresh both packages.
+and copied here verbatim. Do not edit it: change `config/franka_conf.yaml` and
+regenerate, then copy the new model files here.
+
+This is the only copy of the generated model in the workspace. `thunder gen`
+also emits the model into the `franka_server` package it generates; those
+copies are dropped, and `franka_server` links this library instead. After a
+regeneration, update only the node, messages and services in `franka_server`.
 
 The package exists so that the model can be *linked* into a node — the
 "in-process" alternative to the Robot Server discussed in the extended
-abstract — without every consumer carrying its own copy of the 70 MB
-generated translation unit.
+abstract, and the Robot Server itself — without every consumer carrying its own
+copy of the 70 MB generated translation unit.
 
 ## Use
 

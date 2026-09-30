@@ -2,7 +2,7 @@
 # Loaded on top of mact_common.yaml.
 #
 # The defaults mirror the 'inputs', 'topics' and 'services' entries of
-# franka_server/config/franka_conf.yaml.
+# thunder_franka/config/franka_conf.yaml.
 
 /**:
   ros__parameters:

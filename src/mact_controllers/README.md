@@ -157,7 +157,7 @@ bag rather than silently changing the control law.
 ## What the server has to expose
 
 The server-based controller is written against the interface declared in
-`franka_server/config/franka_conf.yaml`, which now reads
+`thunder_franka/config/franka_conf.yaml`, which now reads
 
 ```yaml
 inputs:  q, dq, ddq, dqr, ddqr, par_REG, par_DYN
