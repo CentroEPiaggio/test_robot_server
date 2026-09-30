@@ -211,6 +211,7 @@ private:
   Vector7d tau_model_{Vector7d::Zero()};
   Vector7d tau_model_previous_{Vector7d::Zero()};
   Vector7d tau_command_{Vector7d::Zero()};
+  Vector7d tau_command_previous_{Vector7d::Zero()};
 
   // ---------------------------------------------------------------- model --
   ModelTerms terms_;
@@ -220,6 +221,8 @@ private:
   Vector7d gravity_torque_{Vector7d::Zero()};
   UrdfGravityModel urdf_gravity_;
   std::unique_ptr<franka_semantic_components::FrankaRobotModel> franka_robot_model_;
+  // Torque-rate limits [Nm/s].
+  const std::array<double, 7> max_tau_rate_{1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0};
 
   /// Whether the model term was actually used in the last cycle.
   bool model_valid_{false};

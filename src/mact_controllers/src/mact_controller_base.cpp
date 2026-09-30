@@ -275,7 +275,7 @@ CallbackReturn MactControllerBase::on_configure(const rclcpp_lifecycle::State & 
   const auto state_topic = get_node()->get_parameter("state_topic").as_string();
   state_publisher_ =
     std::make_shared<realtime_tools::RealtimePublisher<mact_msgs::msg::MactState>>(
-    get_node()->create_publisher<mact_msgs::msg::MactState>(state_topic, rclcpp::QoS(10)));
+    get_node()->create_publisher<mact_msgs::msg::MactState>(state_topic, rclcpp::QoS(1)));
   // Size the variable-length field once, here, so that update() never
   // allocates while holding the real-time publisher.
   state_publisher_->msg_.pi_hat.assign(num_parameters_, 0.0);
@@ -325,6 +325,7 @@ CallbackReturn MactControllerBase::on_activate(const rclcpp_lifecycle::State & /
   tau_model_.setZero();
   tau_model_previous_.setZero();
   tau_command_.setZero();
+  tau_command_previous_.setZero();
   reference_fresh_ = false;
   terms_.invalidate();
   model_valid_ = false;
@@ -596,7 +597,14 @@ void MactControllerBase::readState()
 void MactControllerBase::writeCommand(const Vector7d & torque)
 {
   for (int joint = 0; joint < kNumJoints; ++joint) {
-    command_interfaces_[joint].set_value(torque(joint));
+    // - rate limiter - //
+    double delta_tau = torque(joint) - tau_command_previous_(joint);
+    double limited_delta_tau = std::clamp(delta_tau, -max_tau_rate_[joint], max_tau_rate_[joint]);
+    double tau_commanded = tau_command_previous_(joint) + limited_delta_tau;
+
+    // - write torques - //
+    command_interfaces_[joint].set_value(tau_commanded);
+    tau_command_previous_(joint) = tau_commanded;
   }
 }
 
