@@ -37,6 +37,7 @@ install(DIRECTORY include/ DESTINATION include)
 install(DIRECTORY config launch DESTINATION share/${PROJECT_NAME})
 install(PROGRAMS
   scripts/analyse_run.py
+  scripts/analyse_timing.py
   scripts/plot_abstract_figure.py
   scripts/thunder_ctypes.py
   DESTINATION lib/${PROJECT_NAME})
