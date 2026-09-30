@@ -148,16 +148,24 @@ def report_loop(loop, rate_hz, budgets_us):
     span = loop['stamp'][-1] - loop['stamp'][0]
     missed = loop['missed']
     worst = int(np.argmax(missed))
+    # A sample is stamped at the start of its cycle, so a cycle that starts
+    # half a period late or early already rounds to +-1: that is jitter of the
+    # cycle start, not a cycle that did not run. The net count over the run
+    # has no such rounding, and real gaps show up as windows of 2 or more.
+    net = int(round(span * rate_hz)) - counted
+    gaps = missed >= 2
 
     print(f'  windows              : {windows} over {span:.2f} s of control time, '
           f'{counted} cycles counted after the first')
     print(f'  expected at {rate_hz:.0f} Hz    : {span * rate_hz:.0f} cycles')
-    print(f'  missed cycles        : {int(missed[missed > 0].sum())} in '
-          f'{int((missed > 0).sum())} windows; worst {int(missed[worst])} '
-          f'in the window ending at t = {loop["time"][worst]:.3f} s')
-    if (missed < 0).any():
-        print(f'                         ({int((missed < 0).sum())} windows counted more '
-              'cycles than the time allows: the loop is not at the rate given with --rate)')
+    print(f'  missed cycles        : {net} net over the run; {int(gaps.sum())} windows '
+          f'missing 2 or more' +
+          (f', worst {int(missed[worst])} in the window ending at t = '
+           f'{loop["time"][worst]:.3f} s' if gaps.any() else ''))
+    jitter = int((np.abs(missed) == 1).sum())
+    if jitter:
+        print(f'  cycle-start jitter   : {jitter} windows off by one cycle, i.e. a cycle '
+              'started ~half a period early or late')
 
     receive_gap = np.diff(loop['receive'])
     print(f'  publication gaps     : largest {1e3 * receive_gap.max():.1f} ms between two '
@@ -230,11 +238,18 @@ def report_tail(loop, robot, tail):
         print(line)
 
 
-def report_joint_states(samples, t0):
+def report_joint_states(samples, t0, rate_hz):
     stamp = np.array([stamp_seconds(m.header) for _, m in samples])
     gaps = np.diff(stamp)
     worst = int(np.argmax(gaps))
-    print(f'  /joint_states        : {len(stamp)} samples; largest gap between stamps '
+    rate = (len(stamp) - 1) / (stamp[-1] - stamp[0])
+    if rate < 0.5 * rate_hz:
+        # On the robot /joint_states is joint_state_publisher, which merges the
+        # broadcaster's topic at its own low rate: nothing to learn about the loop.
+        print(f'  /joint_states        : {rate:.0f} Hz, not published by the control loop '
+              '(joint_state_publisher?); ignored')
+        return
+    print(f'  /joint_states        : {rate:.0f} Hz; largest gap between stamps '
           f'{1e3 * gaps[worst]:.1f} ms, ending at t = {stamp[worst + 1] - t0:.3f} s '
           '(an upper bound on a stall: the broadcaster also drops samples)')
 
@@ -413,7 +428,7 @@ def main():
         print(f'\n=== {name} ===')
         report_loop(loop, arguments.rate, arguments.budget_us)
         if samples.get(JOINT_STATE_TOPIC):
-            report_joint_states(samples[JOINT_STATE_TOPIC], loop['stamp'][0])
+            report_joint_states(samples[JOINT_STATE_TOPIC], loop['stamp'][0], arguments.rate)
         if robot is not None:
             report_robot(robot, loop['stamp'][0])
         else:
@@ -436,7 +451,9 @@ def main():
         for name, loop, robot in rows:
             success = f'{100.0 * robot["success_rate"].min():10.1f}%' if robot is not None \
                 else f'{"-":>11s}'
-            print(f'{name:40s} {int(loop["missed"][loop["missed"] > 0].sum()):7d} '
+            net = int(round((loop['stamp'][-1] - loop['stamp'][0]) * arguments.rate)) - \
+                int(loop['cycles'][1:].sum())
+            print(f'{name:40s} {net:7d} '
                   f'{int(loop["missed"].max()):6d} {np.percentile(loop["max_us"], 99):8.1f} '
                   f'{loop["max_us"].max():8.1f} {loop["mean_us"].mean():7.1f} {success}')
 
