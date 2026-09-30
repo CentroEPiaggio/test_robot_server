@@ -30,9 +30,20 @@ target_include_directories(${PROJECT_NAME}
 target_link_libraries(${PROJECT_NAME} PUBLIC Eigen3::Eigen yaml-cpp)
 
 # franka_gen.cpp is a ~70 MB single translation unit of straight-line CasADi
-# code. -O2 keeps the evaluation fast without the compile-time/memory blow-up
-# that -O3 causes on a file this size.
-set_source_files_properties(src/franka_gen.cpp PROPERTIES COMPILE_OPTIONS "-O2")
+# code. -O2 by default: it keeps the evaluation fast without the compile-time
+# and memory blow-up that -O3 causes on a file this size. The options come
+# after the build type's own, so the -O given here is the one that applies.
+#
+# To try something else, e.g. on the robot PC:
+#   colcon build --packages-select thunder_franka \
+#     --cmake-args "-DTHUNDER_GEN_OPTIONS=-O3;-march=native"
+# It is a cache variable, so it sticks until it is set again. -march=native
+# targets the CPU that compiles: build on the machine that runs the library.
+set(THUNDER_GEN_OPTIONS "-O2" CACHE STRING
+  "Compile options for the generated franka_gen.cpp (a ;-separated list)")
+set_source_files_properties(src/franka_gen.cpp
+  PROPERTIES COMPILE_OPTIONS "${THUNDER_GEN_OPTIONS}")
+message(STATUS "franka_gen.cpp compiled with: ${THUNDER_GEN_OPTIONS}")
 
 install(DIRECTORY include/ DESTINATION include)
 install(DIRECTORY config DESTINATION share/${PROJECT_NAME})
