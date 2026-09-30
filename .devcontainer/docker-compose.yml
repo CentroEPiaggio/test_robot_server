@@ -73,10 +73,10 @@ services:
     ulimits:
       rtprio: 99
       memlock:
-        soft: 1048576   # 1 GB in kilobytes
-        hard: 1048576
-        # soft: -1      # unlimited
-        # hard: -1
+        # soft: 1048576   # 1 GB in kilobytes
+        # hard: 1048576
+        soft: -1      # unlimited
+        hard: -1
 
     # Default command: open a bash shell
     command: [ "bash" ]

@@ -148,10 +148,10 @@ RUN groupadd realtime \
 RUN sed -i '/# End of file/i \
 @realtime soft rtprio 99\n\
 @realtime soft priority 99\n\
-@realtime soft memlock 1048576\n\
+@realtime soft memlock -1\n\
 @realtime hard rtprio 99\n\
 @realtime hard priority 99\n\
-@realtime hard memlock 1048576\n' /etc/security/limits.conf
+@realtime hard memlock -1\n' /etc/security/limits.conf
 
 # Choose to run as user
 ENV USER=${USER}
