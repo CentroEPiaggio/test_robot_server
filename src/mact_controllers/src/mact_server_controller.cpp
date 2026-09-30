@@ -187,26 +187,31 @@ bool MactServerController::updateModel(const MotionSample & /*motion*/, ModelTer
   if (!regressor_r.valid || terms.age_ms > server_timeout_s_ * 1e3) {
     return false;
   }
-  if (!toMatrix(regressor_r, terms.regressor_r)) {
+  // The counterpart of the in-process evaluation is the copy out of the
+  // received message, so that is what the per-regressor timing measures.
+  auto start = SteadyClock::now();
+  const bool converted_r = toMatrix(regressor_r, terms.regressor_r);
+  terms.regressor_r_us = elapsedUs(start, SteadyClock::now());
+  if (!converted_r) {
     return false;
   }
   terms.has_regressor_r = true;
 
   if (needsRegressor()) {
     const TimedArray & regressor = *regressor_buffer_.readFromRT();
-    if (regressor.valid && ageMs(regressor, now) <= server_timeout_s_ * 1e3 &&
-      toMatrix(regressor, terms.regressor))
-    {
-      terms.has_regressor = true;
+    if (regressor.valid && ageMs(regressor, now) <= server_timeout_s_ * 1e3) {
+      start = SteadyClock::now();
+      terms.has_regressor = toMatrix(regressor, terms.regressor);
+      terms.regressor_us = elapsedUs(start, SteadyClock::now());
     }
   }
 
   if (needsGravityRegressor()) {
     const TimedArray & regressor_g = *regressor_g_buffer_.readFromRT();
-    if (regressor_g.valid && ageMs(regressor_g, now) <= server_timeout_s_ * 1e3 &&
-      toMatrix(regressor_g, terms.regressor_g))
-    {
-      terms.has_regressor_g = true;
+    if (regressor_g.valid && ageMs(regressor_g, now) <= server_timeout_s_ * 1e3) {
+      start = SteadyClock::now();
+      terms.has_regressor_g = toMatrix(regressor_g, terms.regressor_g);
+      terms.regressor_g_us = elapsedUs(start, SteadyClock::now());
     }
   }
 

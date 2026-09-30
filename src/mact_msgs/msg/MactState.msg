@@ -45,12 +45,38 @@ float64[7] tau_gravity
 float64[] pi_hat        # current estimate of the regressor parameters (par_REG)
 
 # ------------------------------------------------------------ health/timing --
-# Wall-clock duration of update(), aggregated over the decimation window so
-# that no outlier is lost when the message is published below the loop rate.
+# The message is filled and published by a non-real-time timer, not by the
+# control loop: the header carries the time of the control cycle the sample was
+# taken in, and every timing below is aggregated over all the cycles since the
+# previous message, so that no outlier is lost when the message is published
+# below the loop rate. cycles_in_window is therefore about loop rate / publish
+# rate, but not exactly.
+#
+# Wall-clock duration of update().
 float64 update_duration_min_us
 float64 update_duration_mean_us
 float64 update_duration_max_us
 uint32  cycles_in_window
+
+# The same duration split by stage, indexed by the STAGE_* constants below.
+# STAGE_REGRESSOR_R, STAGE_REGRESSOR and STAGE_REGRESSOR_G are parts of
+# STAGE_MODEL, not additional to it: the evaluation of Y_r, Y and reg_G
+# in-process, their copy out of the received message with the server. They are
+# 0 when the regressor is not needed. STAGE_SNAPSHOT is the hand-over of this
+# very sample to the publishing timer; it is measured after the rest of the
+# cycle, so it lags the others by one cycle and is not part of update_duration.
+uint8 STAGE_STATE = 0         # read the state, filter, reference, error check
+uint8 STAGE_MODEL = 1         # updateModel()
+uint8 STAGE_REGRESSOR_R = 2   #   of which Y_r
+uint8 STAGE_REGRESSOR = 3     #   of which Y
+uint8 STAGE_REGRESSOR_G = 4   #   of which reg_G
+uint8 STAGE_GRAVITY = 5       # gravity torque from 'gravity.source'
+uint8 STAGE_CONTROL = 6       # control law, saturation, command write
+uint8 STAGE_ADAPTATION = 7    # parameter update law
+uint8 STAGE_CYCLE_END = 8     # onCycleEnd(): publishing to the server
+uint8 STAGE_SNAPSHOT = 9      # hand-over to the diagnostics timer
+float64[10] stage_duration_mean_us
+float64[10] stage_duration_max_us
 
 bool    model_valid       # a usable regressor was available this cycle
 float64 model_age_ms      # age of the newest Yr; always 0.0 in-process

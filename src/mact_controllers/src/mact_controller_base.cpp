@@ -7,10 +7,41 @@
 #include <chrono>
 #include <limits>
 #include <array>
+#include <thread>
+#include <tuple>
 
 namespace mact_controllers {
 
 namespace {
+
+using mact_msgs::msg::MactState;
+
+// The per-stage arrays of the message are indexed by Stage.
+static_assert(
+  std::tuple_size<decltype(MactState::stage_duration_mean_us)>::value == kNumStages &&
+  std::tuple_size<decltype(MactState::stage_duration_max_us)>::value == kNumStages,
+  "MactState's per-stage arrays must have one entry per Stage");
+static_assert(
+  MactState::STAGE_STATE == static_cast<std::size_t>(Stage::kState) &&
+  MactState::STAGE_MODEL == static_cast<std::size_t>(Stage::kModel) &&
+  MactState::STAGE_REGRESSOR_R == static_cast<std::size_t>(Stage::kRegressorR) &&
+  MactState::STAGE_REGRESSOR == static_cast<std::size_t>(Stage::kRegressor) &&
+  MactState::STAGE_REGRESSOR_G == static_cast<std::size_t>(Stage::kRegressorG) &&
+  MactState::STAGE_GRAVITY == static_cast<std::size_t>(Stage::kGravity) &&
+  MactState::STAGE_CONTROL == static_cast<std::size_t>(Stage::kControl) &&
+  MactState::STAGE_ADAPTATION == static_cast<std::size_t>(Stage::kAdaptation) &&
+  MactState::STAGE_CYCLE_END == static_cast<std::size_t>(Stage::kCycleEnd) &&
+  MactState::STAGE_SNAPSHOT == static_cast<std::size_t>(Stage::kSnapshot),
+  "MactState's STAGE_* constants and Stage must list the stages in the same order");
+
+/// How many times the timer tries to take the snapshot before leaving it to
+/// the next tick. The loop holds the mutex for a copy of a few microseconds.
+constexpr int kSnapshotAttempts = 10;
+
+DurationStats & stage(TimingWindow & timing, Stage which)
+{
+  return timing.stages[static_cast<std::size_t>(which)];
+}
 
 /// Copy an Eigen 7-vector into a fixed-size message array.
 template<typename Array>
@@ -67,8 +98,7 @@ MactControllerBase::state_interface_configuration() const
 // Lifecycle
 // ---------------------------------------------------------------------------
 
-CallbackReturn MactControllerBase::on_init()
-{
+CallbackReturn MactControllerBase::on_init() {
   try {
     auto_declare<std::string>("arm_id", "fr3");
     auto_declare<std::vector<std::string>>("joints", {});
@@ -108,7 +138,9 @@ CallbackReturn MactControllerBase::on_init()
     auto_declare<std::string>("gravity.chain_tip", "");
     auto_declare<double>("gravity.description_timeout_s", 10.0);
 
-    auto_declare<int>("diagnostics.publish_every_n_cycles", 10);
+    // Rate of the non-real-time timer that publishes mact_msgs/MactState;
+    // <= 0 disables the diagnostics altogether.
+    auto_declare<double>("diagnostics.publish_rate_hz", 100.0);
   } catch (const std::exception & exception) {
     fprintf(stderr, "Exception thrown during init stage: %s\n", exception.what());
     return CallbackReturn::ERROR;
@@ -117,8 +149,7 @@ CallbackReturn MactControllerBase::on_init()
   return onInitDerived();
 }
 
-CallbackReturn MactControllerBase::on_configure(const rclcpp_lifecycle::State & /*previous*/)
-{
+CallbackReturn MactControllerBase::on_configure(const rclcpp_lifecycle::State & /*previous*/) {
   const auto logger = get_node()->get_logger();
 
   // ------------------------------------------------------------- joints --
@@ -268,17 +299,45 @@ CallbackReturn MactControllerBase::on_configure(const rclcpp_lifecycle::State & 
     });
 
   // --------------------------------------------------------- diagnostics --
-  publish_every_n_cycles_ =
-    static_cast<int>(get_node()->get_parameter("diagnostics.publish_every_n_cycles").as_int());
-  publish_every_n_cycles_ = std::max(1, publish_every_n_cycles_);
+  // Stop the timer of a previous configuration before touching what it reads.
+  if (diagnostics_timer_) {
+    diagnostics_timer_->cancel();
+  }
+  diagnostics_timer_.reset();
+  state_publisher_.reset();
 
-  const auto state_topic = get_node()->get_parameter("state_topic").as_string();
-  state_publisher_ =
-    std::make_shared<realtime_tools::RealtimePublisher<mact_msgs::msg::MactState>>(
-    get_node()->create_publisher<mact_msgs::msg::MactState>(state_topic, rclcpp::QoS(1)));
-  // Size the variable-length field once, here, so that update() never
-  // allocates while holding the real-time publisher.
-  state_publisher_->msg_.pi_hat.assign(num_parameters_, 0.0);
+  // Size the estimate once, here, so that neither the loop nor the timer
+  // allocates when they copy it around.
+  snapshot_ = DiagnosticsSnapshot{};
+  snapshot_.pi_hat.setZero(num_parameters_);
+  published_snapshot_ = snapshot_;
+  state_message_ = MactState{};
+  state_message_.pi_hat.assign(num_parameters_, 0.0);
+
+  const double publish_rate_hz =
+    get_node()->get_parameter("diagnostics.publish_rate_hz").as_double();
+  diagnostics_enabled_ = publish_rate_hz > 0.0;
+  if (diagnostics_enabled_) {
+    const auto state_topic = get_node()->get_parameter("state_topic").as_string();
+    // Best effort, keep-last-one: this is monitoring, and a sample that did
+    // not make it is superseded by the next one. A subscriber has to be best
+    // effort as well, since a reliable one does not match this publisher.
+    state_publisher_ =
+      get_node()->create_publisher<MactState>(state_topic, rclcpp::QoS(1).best_effort());
+    // A wall timer on the controller manager's executor: it runs outside the
+    // real-time loop, which only ever hands it a snapshot.
+    diagnostics_timer_ = get_node()->create_wall_timer(
+      std::chrono::duration_cast<std::chrono::nanoseconds>(
+        std::chrono::duration<double>(1.0 / publish_rate_hz)),
+      [this]() {publishDiagnostics();});
+    RCLCPP_INFO(
+      logger, "Diagnostics on '%s' at %.1f Hz", state_publisher_->get_topic_name(),
+      publish_rate_hz);
+  } else {
+    RCLCPP_WARN(
+      logger, "Diagnostics disabled ('diagnostics.publish_rate_hz' <= 0): nothing is "
+      "published on the state topic, and the loop's warnings are not logged either");
+  }
 
   const auto derived = onConfigureDerived();
   if (derived != CallbackReturn::SUCCESS) {
@@ -306,8 +365,7 @@ CallbackReturn MactControllerBase::on_configure(const rclcpp_lifecycle::State & 
   return CallbackReturn::SUCCESS;
 }
 
-CallbackReturn MactControllerBase::on_activate(const rclcpp_lifecycle::State & /*previous*/)
-{
+CallbackReturn MactControllerBase::on_activate(const rclcpp_lifecycle::State & /*previous*/) {
   if (franka_robot_model_) {
     franka_robot_model_->assign_loaned_state_interfaces(state_interfaces_);
   }
@@ -335,10 +393,21 @@ CallbackReturn MactControllerBase::on_activate(const rclcpp_lifecycle::State & /
   adaptation_enabled_.store(adaptation_enabled_default_, std::memory_order_relaxed);
   trajectory_time_ = 0.0;
   degraded_cycles_ = 0;
-  cycles_in_window_ = 0;
-  duration_sum_us_ = 0.0;
-  duration_min_us_ = std::numeric_limits<double>::max();
-  duration_max_us_ = 0.0;
+  stale_reference_cycles_ = 0;
+  gravity_unavailable_cycles_ = 0;
+  timing_.reset();
+  snapshot_duration_us_ = -1.0;
+  tripped_tracking_error_.store(-1.0, std::memory_order_relaxed);
+  // Whatever the timer has not taken yet belongs to the previous activation.
+  // If it is taking it right now, the leftover timing merges into the first
+  // window of this one, which is harmless.
+  {
+    std::unique_lock<std::mutex> lock(snapshot_mutex_, std::try_to_lock);
+    if (lock.owns_lock()) {
+      snapshot_.timing.reset();
+      snapshot_.fresh = false;
+    }
+  }
 
   return onActivateDerived();
 }
@@ -359,9 +428,11 @@ CallbackReturn MactControllerBase::on_deactivate(const rclcpp_lifecycle::State &
 // ---------------------------------------------------------------------------
 
 controller_interface::return_type MactControllerBase::update(
-  const rclcpp::Time & time, const rclcpp::Duration & period)
-{
-  const auto cycle_start = std::chrono::steady_clock::now();
+  const rclcpp::Time & time, const rclcpp::Duration & period) {
+  // Nothing in here logs: writing to the console and to /rosout from the loop
+  // can block it. Whatever is worth reporting is counted, and the diagnostics
+  // timer logs it from outside the loop.
+  const auto cycle_start = SteadyClock::now();
   const double dt = period.seconds();
 
   // ------------------------------------------------------ measured state --
@@ -398,9 +469,7 @@ controller_interface::return_type MactControllerBase::update(
     motion.dq_d.setZero();
     motion.ddq_d.setZero();
     if (reference.valid) {
-      RCLCPP_WARN_THROTTLE(
-        get_node()->get_logger(), *get_node()->get_clock(), 1000,
-        "Desired trajectory is stale; holding position");
+      ++stale_reference_cycles_;
     }
   }
 
@@ -408,17 +477,16 @@ controller_interface::return_type MactControllerBase::update(
   const Vector7d error_rate = motion.dq_d - motion.dq;
 
   if (max_tracking_error_ > 0.0 && error.cwiseAbs().maxCoeff() > max_tracking_error_) {
-    RCLCPP_ERROR(
-      get_node()->get_logger(),
-      "Tracking error %.3f rad exceeds the limit of %.3f rad; deactivating",
-      error.cwiseAbs().maxCoeff(), max_tracking_error_);
+    tripped_tracking_error_.store(error.cwiseAbs().maxCoeff(), std::memory_order_relaxed);
     writeCommand(Vector7d::Zero());
     return controller_interface::return_type::ERROR;
   }
+  const auto state_done = SteadyClock::now();
 
   // ---------------------------------------------------------------- model --
   terms_.invalidate();
   model_valid_ = updateModel(motion, terms_) && terms_.has_regressor_r;
+  const auto model_done = SteadyClock::now();
 
   // The model term and the gravity subtraction go together. Commanding
   // Y_r*pi_hat without being able to remove the gravity part of it would apply
@@ -428,11 +496,9 @@ controller_interface::return_type MactControllerBase::update(
   // the hardware and merely loses the feed-forward.
   if (!updateGravity(motion)) {
     model_valid_ = false;
-    RCLCPP_WARN_THROTTLE(
-      get_node()->get_logger(), *get_node()->get_clock(), 5000,
-      "No gravity torque available from source '%s'; commanding the PD term "
-      "alone rather than gravity twice", toString(gravity_source_));
+    ++gravity_unavailable_cycles_;
   }
+  const auto gravity_done = SteadyClock::now();
 
   // ----------------------------------------------------------- control law --
   // PD part, always present.
@@ -444,10 +510,8 @@ controller_interface::return_type MactControllerBase::update(
     tau_model_.noalias() += terms_.regressor_r * adaptation_.estimate();
   } else {
     ++degraded_cycles_;
-    RCLCPP_WARN_THROTTLE(
-      get_node()->get_logger(), *get_node()->get_clock(), 1000,
-      "No usable regressor; commanding the PD term alone");
   }
+  const auto adaptation_start = SteadyClock::now();
 
   // ------------------------------------------------------------ adaptation --
   // Whether this runs at all is decided outside the controller, through the
@@ -472,6 +536,7 @@ controller_interface::return_type MactControllerBase::update(
       terms_.regressor_r, error_rate, terms_.regressor, adaptation_torque,
       terms_.has_regressor, dt);
   }
+  const auto adaptation_done = SteadyClock::now();
 
   // -------------------------------------------------------------- command --
   tau_command_ = tau_model_;
@@ -485,22 +550,34 @@ controller_interface::return_type MactControllerBase::update(
 
   writeCommand(tau_command_);
   tau_model_previous_ = tau_model_;
+  const auto command_done = SteadyClock::now();
 
   // Publishing happens after the command is written, so that it can never
   // delay the actuation.
   onCycleEnd(motion, adaptation_.estimate());
+  const auto cycle_end_done = SteadyClock::now();
 
-  // ------------------------------------------------------------- timing ---
-  const double duration_us =
-    std::chrono::duration<double, std::micro>(std::chrono::steady_clock::now() - cycle_start)
-    .count();
-  duration_sum_us_ += duration_us;
-  duration_min_us_ = std::min(duration_min_us_, duration_us);
-  duration_max_us_ = std::max(duration_max_us_, duration_us);
-  ++cycles_in_window_;
+  // ---------------------------------------------------------- diagnostics --
+  if (diagnostics_enabled_) {
+    timing_.total.add(elapsedUs(cycle_start, cycle_end_done));
+    stage(timing_, Stage::kState).add(elapsedUs(cycle_start, state_done));
+    stage(timing_, Stage::kModel).add(elapsedUs(state_done, model_done));
+    stage(timing_, Stage::kRegressorR).add(terms_.regressor_r_us);
+    stage(timing_, Stage::kRegressor).add(terms_.regressor_us);
+    stage(timing_, Stage::kRegressorG).add(terms_.regressor_g_us);
+    stage(timing_, Stage::kGravity).add(elapsedUs(model_done, gravity_done));
+    stage(timing_, Stage::kControl).add(
+      elapsedUs(gravity_done, adaptation_start) + elapsedUs(adaptation_done, command_done));
+    stage(timing_, Stage::kAdaptation).add(elapsedUs(adaptation_start, adaptation_done));
+    stage(timing_, Stage::kCycleEnd).add(elapsedUs(command_done, cycle_end_done));
+    // The hand-over of the previous cycle; there is none on the first one.
+    if (snapshot_duration_us_ >= 0.0) {
+      stage(timing_, Stage::kSnapshot).add(snapshot_duration_us_);
+    }
+    ++timing_.cycles;
 
-  if (cycles_in_window_ >= publish_every_n_cycles_) {
-    publishDiagnostics(time, motion);
+    writeSnapshot(time, motion);
+    snapshot_duration_us_ = elapsedUs(cycle_end_done, SteadyClock::now());
   }
 
   return controller_interface::return_type::OK;
@@ -652,52 +729,149 @@ void MactControllerBase::setAdaptationCallback(
   }
 }
 
-void MactControllerBase::publishDiagnostics(const rclcpp::Time & time, const MotionSample & motion)
-{
-  if (state_publisher_ && state_publisher_->trylock()) {
-    auto & message = state_publisher_->msg_;
-    message.header.stamp = time;
-
-    toMessage(motion.q, message.q);
-    toMessage(motion.dq, message.dq);
-    toMessage(motion.ddq, message.ddq);
-    toMessage(motion.q_d, message.q_d);
-    toMessage(motion.dq_d, message.dq_d);
-    toMessage(motion.ddq_d, message.ddq_d);
-    toMessage(motion.q_d - motion.q, message.e);
-    toMessage(motion.dq_d - motion.dq, message.de);
-    toMessage(tau_model_, message.tau_model);
-    toMessage(tau_command_, message.tau_cmd);
-    toMessage(tau_measured_, message.tau_meas);
-    toMessage(gravity_torque_, message.tau_gravity);
-
-    const auto & estimate = adaptation_.estimate();
-    for (int parameter = 0; parameter < num_parameters_; ++parameter) {
-      message.pi_hat[parameter] = estimate(parameter);
-    }
-
-    message.update_duration_min_us = duration_min_us_;
-    message.update_duration_max_us = duration_max_us_;
-    message.update_duration_mean_us =
-      cycles_in_window_ > 0 ? duration_sum_us_ / cycles_in_window_ : 0.0;
-    message.cycles_in_window = static_cast<uint32_t>(cycles_in_window_);
-
-    message.model_valid = model_valid_;
-    message.model_age_ms = terms_.age_ms;
-    message.degraded_cycles = degraded_cycles_;
-    message.trajectory_valid = reference_fresh_;
-    message.trajectory_time = trajectory_time_;
-    message.adaptation_enabled = adaptation_enabled_.load(std::memory_order_relaxed);
-
-    state_publisher_->unlockAndPublish();
+void MactControllerBase::writeSnapshot(const rclcpp::Time & time, const MotionSample & motion) {
+  // Runs in the loop: try, never wait. If the timer is taking the previous
+  // snapshot right now, this cycle's sample is skipped and its timing stays in
+  // timing_, to be handed over with the next one.
+  std::unique_lock<std::mutex> lock(snapshot_mutex_, std::try_to_lock);
+  if (!lock.owns_lock()) {
+    return;
   }
 
-  // The window is restarted whether or not the message could be published, so
-  // that a missed publication does not distort the next one.
-  cycles_in_window_ = 0;
-  duration_sum_us_ = 0.0;
-  duration_min_us_ = std::numeric_limits<double>::max();
-  duration_max_us_ = 0.0;
+  snapshot_.stamp = time;
+  snapshot_.motion = motion;
+  snapshot_.tau_model = tau_model_;
+  snapshot_.tau_command = tau_command_;
+  snapshot_.tau_measured = tau_measured_;
+  snapshot_.tau_gravity = gravity_torque_;
+  // Same size as configured, so this copies without reallocating.
+  snapshot_.pi_hat = adaptation_.estimate();
+
+  snapshot_.trajectory_time = trajectory_time_;
+  snapshot_.model_age_ms = terms_.age_ms;
+  snapshot_.model_valid = model_valid_;
+  snapshot_.trajectory_valid = reference_fresh_;
+  snapshot_.adaptation_enabled = adaptation_enabled_.load(std::memory_order_relaxed);
+
+  snapshot_.degraded_cycles = degraded_cycles_;
+  snapshot_.stale_reference_cycles = stale_reference_cycles_;
+  snapshot_.gravity_unavailable_cycles = gravity_unavailable_cycles_;
+
+  snapshot_.timing.merge(timing_);
+  snapshot_.fresh = true;
+  lock.unlock();
+
+  timing_.reset();
+}
+
+void MactControllerBase::publishDiagnostics() {
+  // A stop is the one thing that must be reported whether or not there is a
+  // snapshot to go with it.
+  const double tripped = tripped_tracking_error_.exchange(-1.0, std::memory_order_relaxed);
+  if (tripped >= 0.0) {
+    RCLCPP_ERROR_THROTTLE(
+      get_node()->get_logger(), *get_node()->get_clock(), 1000,
+      "Tracking error %.3f rad exceeds the limit of %.3f rad; deactivating",
+      tripped, max_tracking_error_);
+  }
+
+  // Try-lock as well, never lock(): the loop's unlock then never has a waiter
+  // to wake. The copy happens under the mutex; everything else after it.
+  bool taken = false;
+  for (int attempt = 0; attempt < kSnapshotAttempts && !taken; ++attempt) {
+    std::unique_lock<std::mutex> lock(snapshot_mutex_, std::try_to_lock);
+    if (!lock.owns_lock()) {
+      std::this_thread::yield();
+      continue;
+    }
+    if (!snapshot_.fresh) {
+      return;  // nothing new since the last tick, e.g. the controller is inactive
+    }
+    published_snapshot_ = snapshot_;
+    snapshot_.timing.reset();
+    snapshot_.fresh = false;
+    taken = true;
+  }
+  if (!taken) {
+    return;  // the timing stays in the snapshot and goes out with the next one
+  }
+
+  const DiagnosticsSnapshot & snapshot = published_snapshot_;
+  logLoopEvents(snapshot);
+
+  auto & message = state_message_;
+  message.header.stamp = snapshot.stamp;
+
+  const MotionSample & motion = snapshot.motion;
+  toMessage(motion.q, message.q);
+  toMessage(motion.dq, message.dq);
+  toMessage(motion.ddq, message.ddq);
+  toMessage(motion.q_d, message.q_d);
+  toMessage(motion.dq_d, message.dq_d);
+  toMessage(motion.ddq_d, message.ddq_d);
+  toMessage(motion.q_d - motion.q, message.e);
+  toMessage(motion.dq_d - motion.dq, message.de);
+  toMessage(snapshot.tau_model, message.tau_model);
+  toMessage(snapshot.tau_command, message.tau_cmd);
+  toMessage(snapshot.tau_measured, message.tau_meas);
+  toMessage(snapshot.tau_gravity, message.tau_gravity);
+
+  for (int parameter = 0; parameter < num_parameters_; ++parameter) {
+    message.pi_hat[parameter] = snapshot.pi_hat(parameter);
+  }
+
+  const TimingWindow & timing = snapshot.timing;
+  const double cycles = static_cast<double>(timing.cycles);
+  const auto mean = [cycles](const DurationStats & stats) {
+      return cycles > 0.0 ? stats.sum / cycles : 0.0;
+    };
+  message.update_duration_min_us = timing.cycles > 0 ? timing.total.min : 0.0;
+  message.update_duration_max_us = timing.total.max;
+  message.update_duration_mean_us = mean(timing.total);
+  message.cycles_in_window = timing.cycles;
+  for (std::size_t index = 0; index < kNumStages; ++index) {
+    message.stage_duration_mean_us[index] = mean(timing.stages[index]);
+    message.stage_duration_max_us[index] = timing.stages[index].max;
+  }
+
+  message.model_valid = snapshot.model_valid;
+  message.model_age_ms = snapshot.model_age_ms;
+  message.degraded_cycles = snapshot.degraded_cycles;
+  message.trajectory_valid = snapshot.trajectory_valid;
+  message.trajectory_time = snapshot.trajectory_time;
+  message.adaptation_enabled = snapshot.adaptation_enabled;
+
+  state_publisher_->publish(message);
+}
+
+void MactControllerBase::logLoopEvents(const DiagnosticsSnapshot & snapshot) {
+  const auto logger = get_node()->get_logger();
+  auto & clock = *get_node()->get_clock();
+
+  // The loop counts; this logs whenever a count grew since the last tick, with
+  // the throttling the loop used to apply itself. The counts restart from
+  // zero at every activation.
+  const auto grew = [](uint32_t current, uint32_t & logged) {
+      if (current < logged) {
+        logged = 0;
+      }
+      const bool result = current > logged;
+      logged = current;
+      return result;
+    };
+
+  if (grew(snapshot.stale_reference_cycles, logged_stale_reference_cycles_)) {
+    RCLCPP_WARN_THROTTLE(logger, clock, 1000, "Desired trajectory is stale; holding position");
+  }
+  if (grew(snapshot.gravity_unavailable_cycles, logged_gravity_unavailable_cycles_)) {
+    RCLCPP_WARN_THROTTLE(
+      logger, clock, 5000,
+      "No gravity torque available from source '%s'; commanding the PD term "
+      "alone rather than gravity twice", toString(gravity_source_));
+  }
+  if (grew(snapshot.degraded_cycles, logged_degraded_cycles_)) {
+    RCLCPP_WARN_THROTTLE(logger, clock, 1000, "No usable regressor; commanding the PD term alone");
+  }
 }
 
 }  // namespace mact_controllers

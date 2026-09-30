@@ -5,6 +5,7 @@
 
 #include <atomic>
 #include <memory>
+#include <mutex>
 #include <string>
 #include <vector>
 
@@ -12,13 +13,13 @@
 #include <franka_semantic_components/franka_robot_model.hpp>
 #include <rclcpp/rclcpp.hpp>
 #include <realtime_tools/realtime_buffer.hpp>
-#include <realtime_tools/realtime_publisher.hpp>
 #include <std_srvs/srv/set_bool.hpp>
 #include <trajectory_msgs/msg/joint_trajectory_point.hpp>
 
 #include <mact_msgs/msg/mact_state.hpp>
 
 #include "mact_controllers/common/adaptation_law.hpp"
+#include "mact_controllers/common/diagnostics.hpp"
 #include "mact_controllers/common/gravity_source.hpp"
 #include "mact_controllers/common/joint_state_estimator.hpp"
 #include "mact_controllers/common/types.hpp"
@@ -69,6 +70,16 @@ using CallbackReturn = rclcpp_lifecycle::node_interfaces::LifecycleNodeInterface
  * is dropped and the controller commands the PD part alone, freezing the
  * parameter estimate until fresh data arrives. This is logged and reported in
  * the diagnostics message so that a degraded interval is visible in the bag.
+ *
+ * ### Diagnostics
+ *
+ * Nothing the loop does for the diagnostics involves ROS. At the end of every
+ * cycle update() copies the raw quantities into a preallocated snapshot, under
+ * a mutex it only ever try-locks; filling mact_msgs/MactState, publishing it
+ * and logging the conditions the loop has counted are done by a wall timer on
+ * the controller manager's executor, at `diagnostics.publish_rate_hz`. The
+ * timer try-locks as well, so nobody ever sleeps on the mutex and the loop's
+ * unlock never has to wake anyone.
  *
  * ### When the update law runs
  *
@@ -159,7 +170,11 @@ private:
   /// Fill gravity_torque_ from the configured source; false when unavailable.
   bool updateGravity(const MotionSample & motion);
   void writeCommand(const Vector7d & torque);
-  void publishDiagnostics(const rclcpp::Time & time, const MotionSample & motion);
+  /// Hand this cycle's quantities over to the timer; real-time safe.
+  void writeSnapshot(const rclcpp::Time & time, const MotionSample & motion);
+  /// Timer callback: take the snapshot, publish it, log what the loop counted.
+  void publishDiagnostics();
+  void logLoopEvents(const DiagnosticsSnapshot & snapshot);
   void trajectoryCallback(const trajectory_msgs::msg::JointTrajectoryPoint::SharedPtr message);
   /// Service handler of `adaptation.service`; runs outside the control loop.
   void setAdaptationCallback(
@@ -228,14 +243,34 @@ private:
   bool model_valid_{false};
 
   // ---------------------------------------------------------- diagnostics --
-  std::shared_ptr<realtime_tools::RealtimePublisher<mact_msgs::msg::MactState>>
-    state_publisher_;
-  int publish_every_n_cycles_{10};
-  int cycles_in_window_{0};
-  double duration_min_us_{0.0};
-  double duration_max_us_{0.0};
-  double duration_sum_us_{0.0};
+  // Owned by the loop.
   uint32_t degraded_cycles_{0};
+  uint32_t stale_reference_cycles_{0};
+  uint32_t gravity_unavailable_cycles_{0};
+  /// Timing accumulated since the last snapshot the loop managed to write.
+  TimingWindow timing_;
+  /// Duration of the previous writeSnapshot(), reported one cycle late.
+  double snapshot_duration_us_{0.0};
+  bool diagnostics_enabled_{true};
+
+  /// Shared between the loop and the timer. Both sides only ever try_lock()
+  /// this mutex -- never lock() -- so that the loop can neither wait on it nor
+  /// have to wake a waiter when it unlocks.
+  std::mutex snapshot_mutex_;
+  DiagnosticsSnapshot snapshot_;
+
+  /// The tracking error that made the loop stop, for the timer to report;
+  /// negative while it has not happened.
+  std::atomic<double> tripped_tracking_error_{-1.0};
+
+  // Owned by the timer.
+  DiagnosticsSnapshot published_snapshot_;
+  mact_msgs::msg::MactState state_message_;
+  rclcpp::Publisher<mact_msgs::msg::MactState>::SharedPtr state_publisher_;
+  rclcpp::TimerBase::SharedPtr diagnostics_timer_;
+  uint32_t logged_degraded_cycles_{0};
+  uint32_t logged_stale_reference_cycles_{0};
+  uint32_t logged_gravity_unavailable_cycles_{0};
 };
 
 }  // namespace mact_controllers

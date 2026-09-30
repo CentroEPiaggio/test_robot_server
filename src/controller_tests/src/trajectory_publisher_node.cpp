@@ -74,8 +74,10 @@ public:
     // The node clock, not a wall timer, so the same code runs unchanged under
     // use_sim_time.
     if (wait_for_controller_) {
+      // Best effort, because that is how the controller publishes its state:
+      // a reliable subscription would never match it.
       controller_state_subscription_ = create_subscription<mact_msgs::msg::MactState>(
-        controller_state_topic_, rclcpp::QoS(1),
+        controller_state_topic_, rclcpp::QoS(1).best_effort(),
         [this](const mact_msgs::msg::MactState::SharedPtr message) {
           // The controller only reports this once it is actually receiving the
           // reference, which is exactly the condition to wait for.

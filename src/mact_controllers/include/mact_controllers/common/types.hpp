@@ -106,6 +106,13 @@ struct ModelTerms
   /// Age of the freshest model data [ms]. Always 0 when the model is linked.
   double age_ms{0.0};
 
+  /// Time spent obtaining each regressor this cycle [us], for the diagnostics:
+  /// the evaluation when the model is linked, the copy out of the received
+  /// message with the server. 0 when that regressor was not needed.
+  double regressor_r_us{0.0};
+  double regressor_us{0.0};
+  double regressor_g_us{0.0};
+
   void resize(int num_parameters)
   {
     regressor_r.setZero(kNumJoints, num_parameters);
@@ -119,6 +126,9 @@ struct ModelTerms
     has_regressor = false;
     has_regressor_g = false;
     age_ms = 0.0;
+    regressor_r_us = 0.0;
+    regressor_us = 0.0;
+    regressor_g_us = 0.0;
   }
 };
 

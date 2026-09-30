@@ -253,6 +253,13 @@
 
     # ---------------------------------------------------------- diagnostics --
     diagnostics:
-      # One mact_msgs/MactState every N cycles; the loop timing is aggregated
-      # over the window so that no outlier is lost. 10 => 100 Hz at a 1 kHz loop.
-      publish_every_n_cycles: 10
+      # Rate of mact_msgs/MactState [Hz]. The message is filled and published
+      # by a non-real-time wall timer: the loop only hands it a snapshot, under
+      # a mutex it never waits on. The header still carries the time of the
+      # control cycle the sample comes from, and the loop timing is aggregated
+      # over every cycle since the previous message, so no outlier is lost.
+      # The timer also does the logging the loop cannot do itself (stale
+      # reference, degraded mode, ...). <= 0 disables all of it, which is the
+      # way to check that the diagnostics are not what disturbs the loop.
+      # Published best effort: subscribers must be best effort too.
+      publish_rate_hz: 100.0

@@ -62,7 +62,9 @@ bool MactLocalController::updateModel(const MotionSample & motion, ModelTerms & 
   // Slotine-Li regressor on the desired motion: Y_r(q, dq, dq_d, ddq_d).
   robot_.set_dqr(motion.dq_d);
   robot_.set_ddqr(motion.ddq_d);
+  auto start = SteadyClock::now();
   terms.regressor_r = robot_.get_Yr();
+  terms.regressor_r_us = elapsedUs(start, SteadyClock::now());
   terms.has_regressor_r = true;
 
   // Standard regressor on the actual motion: Y(q, dq, ddq). It takes the
@@ -71,13 +73,17 @@ bool MactLocalController::updateModel(const MotionSample & motion, ModelTerms & 
   // term of eq. (2) is active, and it costs about as much as Y_r.
   if (needsRegressor()) {
     robot_.set_ddq(motion.ddq);
+    start = SteadyClock::now();
     terms.regressor = robot_.get_Y();
+    terms.regressor_us = elapsedUs(start, SteadyClock::now());
     terms.has_regressor = true;
   }
 
   // Gravity regressor, only when the command has to be made gravity-free.
   if (needsGravityRegressor()) {
+    start = SteadyClock::now();
     terms.regressor_g = robot_.get_reg_G();
+    terms.regressor_g_us = elapsedUs(start, SteadyClock::now());
     terms.has_regressor_g = true;
   }
 
