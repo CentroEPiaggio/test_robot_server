@@ -30,19 +30,18 @@ using RegressorMatrix = Eigen::Matrix<double, kNumJoints, Eigen::Dynamic>;
  *               in it, so it is not fitted into the inertial parameters, and
  *               neither saturation nor a gravity source that does not match the
  *               hardware's can bias the estimate.
- *  - kModel:    tau_model, the control law of the previous cycle. This is only
- *               equal to the applied torque when the subtracted gravity matches
- *               the one the hardware adds back, nothing saturated, and the
- *               joints are frictionless. Measured in Gazebo on the Lissajous,
- *               the residual against tau_model is about twice the one against
- *               the measurement, the difference being the 0.2 Nm of Coulomb
- *               friction the FR3 URDF gives every joint. Kept because it is
- *               what the published runs used.
+ *  - kCommanded: the full torque sent in the previous cycle, after
+ *               saturation and the rate limiter, plus the gravity the hardware
+ *               adds back. It is what the motors were asked for, so joint
+ *               friction ends up in it: in Gazebo on the Lissajous the residual
+ *               is about twice the one against the measurement, the 0.2 Nm of
+ *               Coulomb friction the FR3 URDF gives every joint. It is also only
+ *               right when 'gravity.source' subtracts the hardware's own G.
  */
 enum class AdaptationTorqueSource
 {
   kMeasured,
-  kModel,
+  kCommanded,
 };
 
 /// Parse the `adaptation.torque_source` parameter; false on an unknown name.

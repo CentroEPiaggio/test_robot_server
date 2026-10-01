@@ -48,20 +48,15 @@ using CallbackReturn = rclcpp_lifecycle::node_interfaces::LifecycleNodeInterface
  *
  *     tau_model = Y_r(q, dq, dq_d, ddq_d) * pi_hat + k_v * e_dot + k_p * e
  *
- * `tau_model` is the torque the robot actually applies. What is written to the
- * command interface is
+ * `tau_model` is the full joint torque, gravity included. Both libfranka and
+ * the Gazebo plugin add their own gravity G on top of the command, so what is
+ * written is
  *
- *     tau_cmd = tau_model                (simulation: Gazebo applies gravity)
- *     tau_cmd = tau_model - G_hat        (real robot: libfranka compensates
- *                                         gravity internally, so commanding it
- *                                         again would double it)
+ *     tau_cmd = rate_limit(saturate(tau_model - G))
  *
- * with G_hat = reg_G(q) * pi_hat. Neither of the two is what eq. (2) wants,
- * though: the update law needs the torque the robot *applied*, and the effort
- * state interface measures exactly that. `adaptation.torque_source` selects
- * between the measurement (the default) and `tau_model`, which is only equal
- * to it when the subtracted gravity matches the hardware's, nothing saturated,
- * and the joints are frictionless.
+ * with G from `gravity.source`, and the robot gets tau_applied = tau_cmd + G.
+ * The update law compares against that (`adaptation.torque_source:
+ * commanded`) or against the effort state interface (`measured`).
  *
  * ### Degraded operation
  *
@@ -169,6 +164,7 @@ private:
   bool fetchRobotDescription(std::string & description);
   /// Fill gravity_torque_ from the configured source; false when unavailable.
   bool updateGravity(const MotionSample & motion);
+  /// Send a full joint torque: remove G, saturate, rate-limit, write.
   void writeCommand(const Vector7d & torque);
   /// Hand this cycle's quantities over to the timer; real-time safe.
   void writeSnapshot(const rclcpp::Time & time, const MotionSample & motion);
@@ -223,10 +219,13 @@ private:
   Vector7d q_hold_{Vector7d::Zero()};
 
   // -------------------------------------------------------------- torques --
+  /// Control law output: the full joint torque, gravity included.
   Vector7d tau_model_{Vector7d::Zero()};
-  Vector7d tau_model_previous_{Vector7d::Zero()};
+  /// What was written to the command interface, after saturation and the
+  /// rate limiter; also the limiter's reference for the next cycle.
   Vector7d tau_command_{Vector7d::Zero()};
-  Vector7d tau_command_previous_{Vector7d::Zero()};
+  /// tau_command_ + G: the full torque the robot actually got.
+  Vector7d tau_applied_{Vector7d::Zero()};
 
   // ---------------------------------------------------------------- model --
   ModelTerms terms_;
@@ -236,7 +235,7 @@ private:
   Vector7d gravity_torque_{Vector7d::Zero()};
   UrdfGravityModel urdf_gravity_;
   std::unique_ptr<franka_semantic_components::FrankaRobotModel> franka_robot_model_;
-  // Torque-rate limits [Nm/s].
+  // Torque-rate limits [Nm per cycle], i.e. 1000 Nm/s at 1 kHz.
   const std::array<double, 7> max_tau_rate_{1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0};
 
   /// Whether the model term was actually used in the last cycle.

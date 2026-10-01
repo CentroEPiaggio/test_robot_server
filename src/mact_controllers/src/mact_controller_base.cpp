@@ -114,7 +114,7 @@ CallbackReturn MactControllerBase::on_init() {
     // Whether the update law integrates is decided from the outside, by
     // whoever owns the motion; this is only the value it starts from.
     auto_declare<std::string>("adaptation.service", "~/set_adaptation");
-    // Which torque the prediction error compares against: measured | model.
+    // Which torque the prediction error compares against: measured | commanded.
     auto_declare<std::string>("adaptation.torque_source", "measured");
     auto_declare<double>("adaptation.gamma", 0.0);
     auto_declare<std::vector<double>>("adaptation.R_t", {});
@@ -209,7 +209,7 @@ CallbackReturn MactControllerBase::on_configure(const rclcpp_lifecycle::State & 
   const auto torque_name = get_node()->get_parameter("adaptation.torque_source").as_string();
   if (!adaptationTorqueSourceFromString(torque_name, adaptation_torque_source_)) {
     RCLCPP_FATAL(
-      logger, "'adaptation.torque_source' is '%s'; expected 'measured' or 'model'",
+      logger, "'adaptation.torque_source' is '%s'; expected 'measured' or 'commanded'",
       torque_name.c_str());
     return CallbackReturn::FAILURE;
   }
@@ -381,9 +381,8 @@ CallbackReturn MactControllerBase::on_activate(const rclcpp_lifecycle::State & /
   trajectory_buffer_.writeFromNonRT(TrajectorySample{});
 
   tau_model_.setZero();
-  tau_model_previous_.setZero();
+  tau_applied_.setZero();
   tau_command_.setZero();
-  tau_command_previous_.setZero();
   reference_fresh_ = false;
   terms_.invalidate();
   model_valid_ = false;
@@ -414,8 +413,9 @@ CallbackReturn MactControllerBase::on_activate(const rclcpp_lifecycle::State & /
 
 CallbackReturn MactControllerBase::on_deactivate(const rclcpp_lifecycle::State & /*previous*/)
 {
-  // Leave the joints without torque rather than with the last command.
-  writeCommand(Vector7d::Zero());
+  // Leave the joints without torque rather than with the last command: a full
+  // torque equal to G is a zero command.
+  writeCommand(gravity_torque_);
   if (franka_robot_model_) {
     franka_robot_model_->release_interfaces();
   }
@@ -478,7 +478,7 @@ controller_interface::return_type MactControllerBase::update(
 
   if (max_tracking_error_ > 0.0 && error.cwiseAbs().maxCoeff() > max_tracking_error_) {
     tripped_tracking_error_.store(error.cwiseAbs().maxCoeff(), std::memory_order_relaxed);
-    writeCommand(Vector7d::Zero());
+    writeCommand(gravity_torque_);  // a zero command
     return controller_interface::return_type::ERROR;
   }
   const auto state_done = SteadyClock::now();
@@ -488,12 +488,9 @@ controller_interface::return_type MactControllerBase::update(
   model_valid_ = updateModel(motion, terms_) && terms_.has_regressor_r;
   const auto model_done = SteadyClock::now();
 
-  // The model term and the gravity subtraction go together. Commanding
-  // Y_r*pi_hat without being able to remove the gravity part of it would apply
-  // gravity twice, since both libfranka and franka_ign_ros2_control add their
-  // own gravity compensation on top of the commanded torque. Falling back to
-  // the PD term is safe in that case: the robot stays gravity-compensated by
-  // the hardware and merely loses the feed-forward.
+  // G is the gravity the hardware adds back on top of the command (libfranka,
+  // franka_ign_ros2_control). Without it the model term cannot be commanded,
+  // since its own gravity would then be applied twice: fall back to PD.
   if (!updateGravity(motion)) {
     model_valid_ = false;
     ++gravity_unavailable_cycles_;
@@ -501,36 +498,26 @@ controller_interface::return_type MactControllerBase::update(
   const auto gravity_done = SteadyClock::now();
 
   // ----------------------------------------------------------- control law --
-  // PD part, always present.
+  // The full joint torque, gravity included. The model term carries the
+  // estimated gravity (eq. (3)); without it the hardware's own G stands in, so
+  // that what is sent below is the PD term alone.
   tau_model_ = k_v_.cwiseProduct(error_rate) + k_p_.cwiseProduct(error);
-
   if (model_valid_) {
-    // Model term assembled from the Slotine-Li regressor and the local copy of
-    // the estimate, i.e. eq. (3) of the extended abstract.
     tau_model_.noalias() += terms_.regressor_r * adaptation_.estimate();
   } else {
+    tau_model_ += gravity_torque_;
     ++degraded_cycles_;
   }
   const auto adaptation_start = SteadyClock::now();
 
   // ------------------------------------------------------------ adaptation --
-  // Whether this runs at all is decided outside the controller, through the
-  // SetBool service: the generator owns the motion and therefore knows when
-  // estimating is meaningful. Nothing here infers it from the reference.
-  //
-  // The prediction error of eq. (2) needs the torque the robot *applied*, and
-  // the two candidates are not interchangeable. tau_measured_ is the effort
-  // state interface, sampled at the top of this very cycle, and it is an
-  // independent measurement of the rigid-body dynamics. tau_model_previous_ is
-  // the control law of the previous cycle, which is what the robot was asked
-  // for -- equal to what it applied only if the subtracted gravity matched the
-  // one the hardware added back, nothing saturated, and the joints have no
-  // friction. Either way the pairing with Y(q, dq, ddq) is deliberate: ddq is
-  // differentiated between the previous sample and this one, so it is the
-  // acceleration the previous cycle's torque produced.
+  // Switched from outside, by the SetBool service. The prediction error needs
+  // the torque applied over [k-1, k], the interval ddq_k was differentiated
+  // over: the sensor's tau_meas_k, or tau_applied_, the full torque the robot
+  // got in the previous cycle (written below, after this update).
   const Vector7d & adaptation_torque =
     adaptation_torque_source_ == AdaptationTorqueSource::kMeasured ?
-    tau_measured_ : tau_model_previous_;
+    tau_measured_ : tau_applied_;
   if (adaptation_enabled_.load(std::memory_order_relaxed) && model_valid_) {
     adaptation_.update(
       terms_.regressor_r, error_rate, terms_.regressor, adaptation_torque,
@@ -539,17 +526,7 @@ controller_interface::return_type MactControllerBase::update(
   const auto adaptation_done = SteadyClock::now();
 
   // -------------------------------------------------------------- command --
-  tau_command_ = tau_model_;
-  if (model_valid_) {
-    // Only when the model term is actually commanded: with the PD term alone
-    // there is no gravity in the command to remove, and subtracting it would
-    // make the arm drop.
-    tau_command_ -= gravity_torque_;
-  }
-  tau_command_ = tau_command_.cwiseMax(-max_torque_).cwiseMin(max_torque_);
-
-  writeCommand(tau_command_);
-  tau_model_previous_ = tau_model_;
+  writeCommand(tau_model_);
   const auto command_done = SteadyClock::now();
 
   // Publishing happens after the command is written, so that it can never
@@ -598,6 +575,7 @@ bool MactControllerBase::updateGravity(const MotionSample & motion)
       // reg_G(q) * pi_hat. The only source that depends on the model being
       // available this cycle.
       if (!terms_.has_regressor_g) {
+        gravity_torque_.setZero();
         return false;
       }
       gravity_torque_.noalias() = terms_.regressor_g * adaptation_.estimate();
@@ -609,6 +587,7 @@ bool MactControllerBase::updateGravity(const MotionSample & motion)
 
     case GravitySource::kFrankaModel: {
       if (!franka_robot_model_) {
+        gravity_torque_.setZero();
         return false;
       }
       const std::array<double, kNumJoints> gravity =
@@ -673,16 +652,18 @@ void MactControllerBase::readState()
 
 void MactControllerBase::writeCommand(const Vector7d & torque)
 {
+  // `torque` is the full joint torque. The hardware adds G back on top of the
+  // command, so G is removed here, and the Franka limits (magnitude and rate)
+  // apply to that gravity-free command, tau_d in the FCI documentation.
   for (int joint = 0; joint < kNumJoints; ++joint) {
-    // - rate limiter - //
-    double delta_tau = torque(joint) - tau_command_previous_(joint);
-    double limited_delta_tau = std::clamp(delta_tau, -max_tau_rate_[joint], max_tau_rate_[joint]);
-    double tau_commanded = tau_command_previous_(joint) + limited_delta_tau;
-
-    // - write torques - //
-    command_interfaces_[joint].set_value(tau_commanded);
-    tau_command_previous_(joint) = tau_commanded;
+    const double command = std::clamp(
+      torque(joint) - gravity_torque_(joint), -max_torque_(joint), max_torque_(joint));
+    tau_command_(joint) += std::clamp(
+      command - tau_command_(joint), -max_tau_rate_[joint], max_tau_rate_[joint]);
+    command_interfaces_[joint].set_value(tau_command_(joint));
   }
+  // What the robot actually gets, for the next cycle's update law.
+  tau_applied_ = tau_command_ + gravity_torque_;
 }
 
 void MactControllerBase::trajectoryCallback(

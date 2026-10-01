@@ -25,10 +25,10 @@ float64[7] e            # q_d - q
 float64[7] de           # dq_d - dq
 
 # ----------------------------------------------------------------- torques --
-# tau_model is the full control law of eq. (1)/(3), gravity included. tau_cmd is
-# what was written to the effort command interface: it equals tau_model when no
-# gravity is subtracted, and tau_model - G otherwise, since both libfranka and
-# the Gazebo plugin add their own gravity compensation on top of the command.
+# tau_model is the full control law of eq. (1)/(3), gravity included (PD + G
+# when the model is unavailable). tau_cmd is what was written to the effort
+# command interface: tau_model - G, saturated and rate-limited, since both
+# libfranka and the Gazebo plugin add their own gravity on top of the command.
 # tau_meas is the effort state interface, i.e. the torque the robot actually
 # applied; it is what the update law compares against by default
 # ('adaptation.torque_source').

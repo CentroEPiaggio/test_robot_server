@@ -12,8 +12,8 @@ bool adaptationTorqueSourceFromString(
     source = AdaptationTorqueSource::kMeasured;
     return true;
   }
-  if (name == "model") {
-    source = AdaptationTorqueSource::kModel;
+  if (name == "commanded") {
+    source = AdaptationTorqueSource::kCommanded;
     return true;
   }
   return false;
@@ -24,8 +24,8 @@ const char * toString(AdaptationTorqueSource source)
   switch (source) {
     case AdaptationTorqueSource::kMeasured:
       return "measured";
-    case AdaptationTorqueSource::kModel:
-      return "model";
+    case AdaptationTorqueSource::kCommanded:
+      return "commanded";
   }
   return "unknown";
 }

@@ -107,11 +107,12 @@ than one that drifted through the final hold.
 
 `adaptation.torque_source` selects it, and `measured` is the default. The
 prediction error of eq. (2) needs the torque the robot *applied*; the effort
-state interface measures exactly that, while `tau_model` is only what the robot
-was asked for, equal to what it applied only when the subtracted gravity
-matches what the hardware adds back, nothing saturates, and the joints are
-frictionless. Measured here on the Lissajous in Gazebo, the residual against
-`tau_model` is about twice the one against the measurement (0.88 against
+state interface measures exactly that, while `commanded` is the full torque the
+motors were sent (after saturation and the rate limiter, plus the gravity the
+hardware adds back), which also contains the joint friction and is only right
+when the subtracted gravity matches what the hardware adds back. Measured here
+on the Lissajous in Gazebo, the residual against the commanded torque is about
+twice the one against the measurement (0.88 against
 0.45 Nm); the difference is the 0.2 Nm of Coulomb friction the FR3 URDF gives
 every joint, which the update law was otherwise fitting into the inertial
 parameters.

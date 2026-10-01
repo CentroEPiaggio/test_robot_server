@@ -85,15 +85,18 @@
       #             fitted into the inertial parameters, and neither torque
       #             saturation nor a 'gravity.source' that differs from what the
       #             hardware adds back can bias the estimate.
-      #   model     tau_model of the previous cycle, i.e. what the robot was
-      #             asked for. Equal to what it applied only when all three of
-      #             those hold. Measured here on the Lissajous in Gazebo, the
-      #             residual against tau_model is about twice the one against
-      #             the measurement (0.88 vs 0.45 Nm), the difference being the
-      #             0.2 Nm of Coulomb friction the FR3 URDF gives every joint,
-      #             which the update law was quietly absorbing into pi_hat.
-      #             Kept for reproducing the earlier runs.
-      torque_source: "model"
+      #   commanded the full torque sent in the previous cycle -- after
+      #             saturation and the rate limiter -- plus the G the hardware
+      #             adds back. What the motors were asked for, so joint friction
+      #             is in it: measured on the Lissajous in Gazebo, the residual
+      #             is about twice the one against the measurement (0.88 vs
+      #             0.45 Nm), the 0.2 Nm of Coulomb friction the FR3 URDF gives
+      #             every joint. Only right when 'gravity.source' subtracts the
+      #             hardware's own G (urdf_kdl in Gazebo, franka_model on the
+      #             robot). Called 'model' before, when it was tau_model taken
+      #             before the limits; without saturation, rate limiting or PD
+      #             fallback cycles the two are the same torque.
+      torque_source: "commanded"
 
       # Weight of the prediction error term gamma * Y^T * R_t * (tau - Y*pi_hat)
       # of eq. (2). Set it to 0.0 to run the tracking term alone, which also
@@ -233,9 +236,9 @@
     # joint 4. Small, but it moves the steady tracking error of the wrist
     # joints by the expected G_error / k_p.
     #
-    # Whatever the source, the gravity is only subtracted when the model term
-    # is actually commanded. If the controller falls back to the PD term there
-    # is no gravity in the command to remove.
+    # The control law is always the full torque, gravity included, and G is
+    # subtracted right before the command is written. Without the model the
+    # law is PD + G, so the command is the PD term alone.
     gravity:
       source: "franka_model"
       # Earth gravity for 'urdf_kdl'. -9.8, not -9.81: that is the value

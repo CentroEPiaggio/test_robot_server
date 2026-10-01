@@ -88,10 +88,11 @@ FR3 URDF gravity Gazebo applies by **2.2 % rms, at most 0.44 Nm** on joint 4.
 Small, but it moves the steady tracking error of the wrist joints by the
 expected `G_error / k_p`.
 
-The gravity is subtracted only when the model term is actually commanded: with
-the PD term alone there is no gravity in the command to remove, and taking it
-out would make the arm drop. The value used each cycle is recorded as
-`tau_gravity` in the diagnostics.
+The control law always produces the full joint torque, gravity included, and G
+is subtracted in one place, right before the command is written. When the model
+is unavailable the law is PD + G, so what is sent is the PD term alone and the
+robot stays gravity-compensated by the hardware. The value used each cycle is
+recorded as `tau_gravity` in the diagnostics.
 
 ## When the estimate starts moving
 
@@ -122,7 +123,7 @@ the two controllers. Writing the cycle index `k`:
 * `ddq_k` is a backward difference, `(q̇_k − q̇_{k−1})/T`, so it is the mean
   acceleration over the interval `[t_{k−1}, t_k)`;
 * `τ_{k−1}` is the torque that was applied over exactly that interval, and it
-  is what the controller feeds the update law (`tau_model_previous_`);
+  is what the controller feeds the update law (`tau_applied_`);
 * the **in-process** controller evaluates `Y(q_k, q̇_k, q̈_k)` in the same
   cycle, so its acceleration matches the interval of `τ_{k−1}` — aligned;
 * the **server-based** controller receives `Y(q_{k−1}, q̇_{k−1}, q̈_{k−1})`,
