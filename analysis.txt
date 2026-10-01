@@ -1,0 +1,159 @@
+Analysis of experiments in the real robot with wrong parameters (scaled by 0.7) and local/server computations.
+
+##############################################################
+######################## RUN ANALYSIS ########################
+##############################################################
+
+=== real_local_p07 ===
+  samples            : 2377 over 23.8 s
+  control cycles     : 23746
+  tracking error |e| : rms 0.20852 rad, max 0.29193 rad
+  per joint max |e|  : 0.0551 0.1163 0.0662 0.2391 0.1370 0.1190 0.2414
+  torque |tau|_inf   : 6.11 Nm
+  update() duration  : mean 400.0 us, worst 2016.1 us
+  missed cycles      : 29 (worst window 2)
+  model available    : 100.00 % of samples
+  degraded cycles    : 0 (0.000 %)
+  |pi_hat(T)-pi_hat(0)|: 0.864955
+
+
+=== real_server_p07 ===
+  samples            : 2304 over 23.0 s
+  control cycles     : 23041
+  tracking error |e| : rms 0.20788 rad, max 0.29006 rad
+  per joint max |e|  : 0.0552 0.1161 0.0655 0.2378 0.1353 0.1175 0.2406
+  torque |tau|_inf   : 5.33 Nm
+  update() duration  : mean 26.6 us, worst 128.0 us
+  missed cycles      : 0 (worst window 0)
+  model available    : 99.91 % of samples
+  model age          : mean 0.419 ms, max 5.412 ms
+  degraded cycles    : 23 (0.100 %)
+  |pi_hat(T)-pi_hat(0)|: 0.866833
+
+
+
+#################################################################
+######################## TIMING ANALYSIS ########################
+#################################################################
+
+====================================
+========== real_local_p07 ==========
+====================================
+  windows              : 2377 over 23.76 s of control time, 23736 cycles counted after the first
+  expected at 1000 Hz    : 23762 cycles
+  missed cycles        : 26 net over the run; 3 windows missing 2 or more, worst 2 in the window ending at t = 1.820 s
+  cycle-start jitter   : 29 windows off by one cycle, i.e. a cycle started ~half a period early or late
+  publication gaps     : largest 12.5 ms between two samples reaching the bag
+  update() [us]        :
+    window mean        : p50   373.6  p90   525.2  p99   734.3  p99.9   888.6  max  1015.0
+    window max         : p50   728.5  p90  1029.1  p99  1384.5  p99.9  1771.6  max  2016.1
+    >    500 us       : worst cycle over it in 2147 windows (90.32 %), mean over it in 375
+    >   1000 us       : worst cycle over it in 280 windows (11.78 %), mean over it in 1
+  stages [us]          :        mean   share   worst
+    state              :       1.1    0.3 %     13.0
+    model              :     390.7   97.8 %   1982.9
+    regressor_r        :     208.0   52.1 %   1014.2  (part of model)
+    regressor          :     181.6   45.4 %   1223.9  (part of model)
+    regressor_g        :       0.0    0.0 %      0.0  (part of model)
+    gravity            :       5.5    1.4 %     43.4
+    control            :       1.4    0.3 %     22.6
+    adaptation         :       0.8    0.2 %     16.8
+    cycle_end          :       0.1    0.0 %      2.3
+    snapshot           :       0.9    0.2 %     19.4
+  /joint_states        : 30 Hz, not published by the control loop (joint_state_publisher?); ignored
+  robot state          : /franka_robot_state_broadcaster/robot_state not recorded
+  events               :
+    t =    1.650 s  reference on
+    t =    6.659 s  adaptation on
+    t =   21.661 s  adaptation off
+    t =   23.682 s  reference off
+  last 25 windows:
+       t [s]  motion cycles missed    mean     max  slowest stage (max)     
+      23.522   21.87     10      0   321.0   535.6  model          525.6 us  
+      23.532   21.88     10      0   310.9   770.0  model          752.7 us  
+      23.542   21.89     10      0   433.5   621.8  model          609.3 us  
+      23.552   21.90     10      0   476.6   756.3  model          742.0 us  
+      23.562   21.91     10      0   357.5   663.2  model          648.1 us  
+      23.572   21.92     10      0   319.9   498.1  model          490.0 us  
+      23.582   21.93     10      0   367.8   800.8  model          782.5 us  
+      23.592   21.94     10      0   381.1   574.8  model          565.0 us  
+      23.602   21.95     10      0   599.0   808.0  model          788.5 us  
+      23.612   21.96     10      0   437.8   714.5  model          700.9 us  
+      23.622   21.97     10      0   339.1   514.1  model          504.0 us  
+      23.632   21.98     10      0   330.6   767.9  model          750.0 us  
+      23.642   21.99     10      0   329.3   553.0  model          543.6 us  
+      23.652   22.00     10      0   489.6   780.2  model          767.6 us  
+      23.662   22.00     10      0   402.6   642.4  model          629.0 us  
+      23.672   22.00     10      0   361.7   604.7  model          593.4 us  
+      23.682   22.00     10      0   416.6   836.6  model          822.2 us  
+      23.693   22.00     11      0   468.9   753.0  model          740.7 us  
+      23.702   22.00      9      0   650.8   873.5  model          856.2 us  
+      23.712   22.00     10      0   465.1   904.8  model          881.9 us  
+      23.722   22.00     10      0   412.9   867.8  model          854.8 us  
+      23.732   22.00     10      0   530.0   991.2  model          975.8 us  
+      23.742   22.00     10      0   372.3   575.7  model          562.0 us  
+      23.752   22.00     10      0   630.5   939.9  model          923.1 us  
+      23.762   22.00     10      0   343.6   781.9  model          763.5 us  
+
+
+=====================================
+========== real_server_p07 ==========
+=====================================
+  windows              : 2304 over 23.03 s of control time, 23031 cycles counted after the first
+  expected at 1000 Hz    : 23033 cycles
+  missed cycles        : 2 net over the run; 0 windows missing 2 or more
+  publication gaps     : largest 16.1 ms between two samples reaching the bag
+  update() [us]        :
+    window mean        : p50    26.4  p90    33.9  p99    42.2  p99.9    52.2  max    57.0
+    window max         : p50    43.5  p90    63.7  p99    86.0  p99.9   104.0  max   128.0
+    >    500 us       : worst cycle over it in 0 windows (0.00 %), mean over it in 0
+    >   1000 us       : worst cycle over it in 0 windows (0.00 %), mean over it in 0
+  stages [us]          :        mean   share   worst
+    state              :       1.7    6.5 %     30.1
+    model              :       3.0   11.3 %     29.1
+    regressor_r        :       1.1    4.0 %     20.7  (part of model)
+    regressor          :       0.9    3.5 %     18.2  (part of model)
+    regressor_g        :       0.0    0.0 %      0.0  (part of model)
+    gravity            :       6.1   22.9 %     34.1
+    control            :       1.2    4.6 %     13.7
+    adaptation         :       0.9    3.3 %     15.2
+    cycle_end          :      13.7   51.4 %     91.9
+    snapshot           :       1.2    4.5 %     12.1
+  /joint_states        : 30 Hz, not published by the control loop (joint_state_publisher?); ignored
+  robot state          : /franka_robot_state_broadcaster/robot_state not recorded
+  events               :
+    t =    0.100 s  first degraded cycle (9 windows)
+    t =    0.100 s  model off
+    t =    0.110 s  model on
+    t =    3.070 s  model off
+    t =    3.080 s  model on
+    t =    5.931 s  adaptation on
+    t =   20.932 s  adaptation off
+    t =   22.942 s  reference off
+  last 25 windows:
+       t [s]  motion cycles missed    mean     max  slowest stage (max)     
+      22.792   21.87     10      0    17.3    35.5  cycle_end       19.2 us  
+      22.803   21.88     10      0    35.6    54.0  cycle_end       32.2 us  
+      22.812   21.89     10      0    29.0    54.3  cycle_end       25.2 us  
+      22.822   21.90     10      0    29.0    46.0  cycle_end       35.1 us  
+      22.833   21.91     10      0    27.9    54.8  cycle_end       22.2 us  
+      22.842   21.92     10      0    19.4    41.0  cycle_end       26.0 us  
+      22.852   21.93     10      0    25.6    33.7  cycle_end       17.3 us  
+      22.863   21.94     10      0    29.9    59.2  cycle_end       30.4 us  
+      22.872   21.95     10      0    29.1    46.1  cycle_end       29.3 us  
+      22.882   21.96     10      0    27.4    52.3  cycle_end       36.8 us  
+      22.893   21.97     10      0    29.1    93.2  cycle_end       36.1 us  
+      22.902   21.98     10      0    35.4    57.4  cycle_end       37.8 us  
+      22.912   21.99     10      0    26.2    52.8  cycle_end       22.3 us  
+      22.922   22.00     10      0    26.5    37.4  cycle_end       18.0 us  
+      22.932   22.00     10      0    26.6    54.7  cycle_end       21.9 us  
+      22.942   22.00     10      0    22.0    57.2  cycle_end       32.1 us  
+      22.952   22.00     10      0    29.0    45.3  cycle_end       19.9 us  
+      22.963   22.00     10      0    34.0    69.8  cycle_end       33.6 us  
+      22.972   22.00     10      0    24.6    29.4  cycle_end       16.6 us  
+      22.982   22.00     10      0    36.4    57.2  cycle_end       25.7 us  
+      22.993   22.00     10      0    29.1    60.9  cycle_end       26.9 us  
+      23.002   22.00     10      0    38.8    72.3  cycle_end       32.5 us  
+      23.013   22.00     10      0    33.4    82.4  cycle_end       31.8 us  
+      23.022   22.00     10      0    20.7    31.6  cycle_end       17.2 us  
+      23.033   22.00     10      0    27.6    40.5  cycle_end       19.4 us  
