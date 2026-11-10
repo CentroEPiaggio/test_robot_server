@@ -5,3 +5,6 @@ bags/
 __pycache__/
 .devcontainer/.env
 .devcontainer/commandhistory/.bash_history
+paper_erf/bench_pinned/
+paper_erf/bench/
+paper_erf/out_p06/
