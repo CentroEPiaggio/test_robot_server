@@ -8,4 +8,3 @@ __pycache__/
 paper_erf/bench_pinned/
 paper_erf/bench/
 paper_erf/out_p06/
-*.pdf
